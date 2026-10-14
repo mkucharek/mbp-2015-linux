@@ -4,20 +4,40 @@
 # s2idle keeps the chip powered and doesn't need this.
 # Install: sudo install -Dm755 brcmfmac-sleep /usr/lib/systemd/system-sleep/brcmfmac
 # $1 = pre|post, $2 = suspend|hibernate|hybrid-sleep|suspend-then-hibernate
+# suspend-then-hibernate runs "post" after the timed wake and "pre hibernate" right after it,
+# so "post" waits for the driver to finish loading, and "pre" retries the unload.
 case "$1/$2" in
     pre/suspend|pre/suspend-then-hibernate)
         grep -q '\[deep\]' /sys/power/mem_sleep || exit 0
         ;;
 esac
+
+wifi_up() {
+    for n in /sys/class/net/*; do
+        [ -d "$n/wireless" ] && return 0
+    done
+    return 1
+}
+
 case "$1" in
     pre)
-        # brcmfmac_wcc/_cyw/_bca (vendor glue) hold a reference to brcmfmac; remove them first
-        mods=$(lsmod | awk '$1 ~ /^brcmfmac_/ {print $1}')
-        # shellcheck disable=SC2086
-        modprobe -r $mods brcmfmac
+        for _ in $(seq 1 20); do
+            # brcmfmac_wcc/_cyw/_bca (vendor glue) hold a reference to brcmfmac; remove them first
+            mods=$(lsmod | awk '$1 ~ /^brcmfmac_/ {print $1}')
+            lsmod | grep -q '^brcmfmac ' || exit 0
+            # shellcheck disable=SC2086
+            modprobe -r $mods brcmfmac 2>/dev/null && exit 0
+            sleep 0.5
+        done
+        echo "brcmfmac-sleep: could not unload brcmfmac" >&2
         ;;
     post)
         modprobe brcmfmac
+        for _ in $(seq 1 30); do
+            wifi_up && exit 0
+            sleep 0.5
+        done
+        echo "brcmfmac-sleep: no Wi-Fi interface 15 s after loading brcmfmac" >&2
         ;;
 esac
 exit 0

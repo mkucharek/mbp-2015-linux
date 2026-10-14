@@ -130,7 +130,9 @@ Hibernate works on amdgpu with the patch from [Deep sleep on amdgpu](#deep-sleep
 - `echo devices > /sys/power/pm_test`, then `echo disk > /sys/power/state`, runs every driver's hibernate freeze, waits 5 s and resumes. No image is written and nothing powers off.
 - A hang on restore leaves nothing in the journal. To find the driver, unload suspects (`modprobe -r`) before hibernating and add them back one at a time. After a hang, the next boot is a normal cold boot, because the kernel clears the image signature as soon as it starts reading the image.
 
-**suspend-then-hibernate** (deep sleep first, then hibernate after `HibernateDelaySec`; the Mac wakes itself with an RTC alarm to do it). Not tested yet. The Wi-Fi hook covers both phases: systemd runs it as `suspend-then-hibernate` around the deep sleep and as `hibernate` around the hibernate.
+**suspend-then-hibernate** works: deep sleep first, then after `HibernateDelaySec` the Mac wakes itself with an RTC alarm and hibernates. Tested with a 2-minute delay on lid close; Wi-Fi was back about 5 s after the restore.
+
+The Wi-Fi hook runs three times in one cycle: `pre suspend-then-hibernate` before the deep sleep, `post suspend-then-hibernate` after the timed wake, and `pre hibernate` about 0.2 s later. A hook that only runs `modprobe brcmfmac` in `post` breaks here: the unload in `pre hibernate` fails with `Module brcmfmac is in use` while the firmware is still loading, the system hibernates with the chip half set up, and after the restore the log shows `brcmf_fwvid_request_module: mod=wcc: failed -16` and `Firmware has halted or crashed`. Wi-Fi stays dead until a reboot. That's why [wifi/brcmfmac-sleep](wifi/brcmfmac-sleep) waits for the interface after loading and retries the unload.
 
 ```ini
 # /etc/systemd/sleep.conf.d/suspend-then-hibernate.conf
@@ -142,7 +144,7 @@ HibernateDelaySec=2h
 HandleLidSwitch=suspend-then-hibernate
 ```
 
-Apply the logind change with `sudo systemctl kill -s HUP systemd-logind`. To test, set `HibernateDelaySec=2min` first and close the lid for about 3 minutes.
+Apply the logind change with `sudo systemctl kill -s HUP systemd-logind`, which reloads logind without ending the session. To test, set `HibernateDelaySec=2min` first and close the lid for about 3 minutes.
 
 ## Bluetooth
 

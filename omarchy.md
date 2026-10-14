@@ -13,6 +13,7 @@ As of 2026-10-14. Omarchy-specific setup only; the hardware findings, kernel par
 | amdgpu deep-sleep fix | patched `amdgpu.ko` (reset at load) | `/usr/lib/modules/7.2.5-3-omarchy/updates/`; built for that kernel only, see [Patched amdgpu module](#patched-amdgpu-module) |
 | IOMMU off, NVMe APST off | `intel_iommu=off nvme_core.default_ps_max_latency_us=0` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
 | Sleep mode | `mem_sleep_default=deep` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
+| Lid close | suspend-then-hibernate, hibernate after 2 h | `/etc/systemd/logind.conf.d/30-lid-suspend-then-hibernate.conf`, `/etc/systemd/sleep.conf.d/suspend-then-hibernate.conf` |
 | Bluetooth fix | btusb option + udev rule + `bt-check.service` | [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh) |
 | Wi-Fi sleep hook | unloads brcmfmac before deep sleep and hibernate | `/usr/lib/systemd/system-sleep/brcmfmac`, from [wifi/brcmfmac-sleep](wifi/brcmfmac-sleep) |
 | Fans | no daemon (SMC automatic) | — |
@@ -43,9 +44,10 @@ cat /proc/cmdline                                     # after reboot
 
 ## Sleep, lid and power
 
-- **Lid / idle:** Omarchy defaults, with no `HandleLidSwitch` override, so closing the lid suspends into deep sleep (S3).
+- **Lid:** `30-lid-suspend-then-hibernate.conf` (`HandleLidSwitch=suspend-then-hibernate`), with `HibernateDelaySec=2h` in `/etc/systemd/sleep.conf.d/suspend-then-hibernate.conf`. Closing the lid goes into deep sleep (S3) and hibernates after 2 h. Idle: Omarchy defaults (no automatic suspend).
 - **logind drop-ins:**
   - `10-ignore-power-button.conf` (`HandlePowerKey=ignore`)
+  - `30-lid-suspend-then-hibernate.conf` (see Lid above)
   - `20-inhibit-delay.conf` (`InhibitDelayMaxSec=15`, which gives `omarchy-sleep-lock.service` time to lock before sleep)
 - **Hibernate works** (`systemctl hibernate`) with the patched module and the Wi-Fi sleep hook. Omarchy's installer set it up:
   - `/swap/swapfile` (15.5 GB, plus zram at higher priority)
@@ -84,6 +86,8 @@ The module is unsigned, so loading it taints the kernel. That's harmless here, b
 3. Rebuild the module for the new version (steps 2–8 above).
 4. Switch back to deep: the same `sed` with `s2idle` and `deep` swapped, then `sudo limine-update` and reboot.
 
+While the stock module is active, don't close the lid for longer than `HibernateDelaySec`, or hibernate by hand: hibernate is only tested with the patched module.
+
 Once the fix is in a linux-omarchy release, remove the override with `sudo bash kernel/amdgpu-module/install.sh remove`, and keep `mem_sleep_default=deep`.
 
 ## Fallback: radeon + deep sleep
@@ -105,7 +109,7 @@ You lose Vulkan, and the Chromium artifacts seen on radeon here are unexplained.
 - [ ] amdgpu patch upstream: watch [drm/amd #5978](https://gitlab.freedesktop.org/drm/amd/-/issues/5978) and amd-gfx; remove the override once the fix is in linux-omarchy
 - [x] Test hibernate with the amdgpu patch: works once brcmfmac is unloaded first (2026-10-14)
 - [x] Deep-sleep cycle through systemd with the Wi-Fi hook: resumes, Wi-Fi back in ~4.5 s (2026-10-14)
-- [ ] Optional: suspend-then-hibernate on lid close (config in hardware.md, Hibernate)
+- [x] suspend-then-hibernate on lid close: works with the fixed Wi-Fi hook (2026-10-15)
 - [ ] Optional: radeon + deep + MTRR-patched kernel
 - [ ] Optional: test hibernate on radeon
 - [ ] Optional, risky: boot-time Intel-only GPU mode (gpu-switch)
