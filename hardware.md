@@ -2,7 +2,7 @@
 
 As of 2026-10-14. This file covers everything that applies on any distro. Distro-specific setup is in [omarchy.md](omarchy.md) and [linux-mint.md](linux-mint.md). The findings come from two installs on this same Mac: Linux Mint 22.3 (kernel 7.0, radeon) and Omarchy (kernel 7.2.5, amdgpu).
 
-Linux runs well on this Mac with four kernel parameters, a Bluetooth workaround, and one hard trade-off. On the AMD GPU you can have **Vulkan (amdgpu) or real sleep (radeon), not both.** The internal screen is wired to the AMD GPU, and that causes most of the quirks.
+Linux runs well on this Mac with four kernel parameters, a Bluetooth workaround, and one hard trade-off. On the AMD GPU, stock kernels give you **Vulkan (amdgpu) or real sleep (radeon), not both**; a patched amdgpu gives both (see Sleep & suspend). The internal screen is wired to the AMD GPU, and that causes most of the quirks.
 
 ## Hardware
 
@@ -12,7 +12,7 @@ Linux runs well on this Mac with four kernel parameters, a Bluetooth workaround,
 - **dGPU:** AMD Radeon R9 M370X "Venus XT" `1002:6821`, Southern Islands (SI / GFX6), supported by both radeon and amdgpu
 - **Panel:** 2880×1800 eDP, routed through `apple_gmux` (4.0.20), which comes up on the AMD GPU at boot
 - **SSD:** ADATA XPG SX8200 Pro (SX8200PNP, fw 32A1TCTB), aftermarket NVMe on an M.2 adapter
-- **Wi-Fi:** Broadcom BCM43602 `14e4:43ba`, brcmfmac, works out of the box
+- **Wi-Fi:** Broadcom BCM43602 `14e4:43ba`, brcmfmac, works out of the box (see Wi-Fi for the deep-sleep issue)
 - **Bluetooth:** Apple BCM20703A1, USB `05ac:8290` on port `1-8`
 - **Camera:** FaceTime HD `14e4:1570`, needs the out-of-tree `facetimehd` driver
 - **Other:** Thunderbolt 2 (Falcon Ridge), keyboard/trackpad USB `05ac:0274` (bcm5974)
@@ -76,18 +76,19 @@ This would fix idle heat and draw, and maybe sleep. You'd lose about half the 3D
 
 ## Sleep & suspend
 
-**The only reliable sleep is radeon + deep (S3).** On amdgpu, every mode that powers the GPU off hangs on resume. s2idle resumes once UVD/VCE are masked, but it isn't really sleep on this hardware, because Haswell Macs have no S0ix low-power idle.
+**Real sleep means deep (S3).** s2idle resumes on amdgpu once UVD/VCE are masked, but it isn't really sleep on this hardware, because Haswell Macs have no S0ix low-power idle. radeon handles deep sleep out of the box. Stock amdgpu hangs on resume from deep sleep, because re-initialising the GPU moves its VRAM and amdgpu never moves it back. A patched amdgpu module (`amdgpu.si_fb_restore=1`) fixes that; the write-up and patch are still to come.
 
 | Driver | Mode | Result | Draw | Full battery lasts | Failure in the log |
 | --- | --- | --- | --- | --- | --- |
 | radeon | deep (S3) | works | 0.21 W | ~20 days | none |
 | radeon | s2idle | resumes, but broken | 21.3 W | ~5 h | `failed VCE resume (-22)`, `failed testing IB on ring 5/6/7`, `radeon_dp_link_train_cr: clock recovery failed`, then EDID lost (Xorg/Cinnamon dropped to 1× scale) |
 | amdgpu | deep (S3) | hangs | n/a | n/a | `ring gfx test failed (-110)`, `resume of IP block <gfx_v6_0> failed -110`, `ring sdma0 timeout`; the mask doesn't help |
+| amdgpu + mask + patch | deep (S3) | **works** | ~0.46 W | ~9 days | none; 1.40 W over the whole 10 min window, which includes ~22 s awake (mostly the slow resume) |
 | amdgpu | s2idle | hangs | n/a | n/a | `UVD Firmware validate fail (-22)`, `resume of IP block <uvd_v3_1> failed`, then endless `Fence fallback timer expired on ring sdma0` |
 | amdgpu + mask | s2idle | **works** | ~22 W | ~5 h | none; resume 0.4 s |
 | amdgpu + mask | hibernate | dark screen after the LUKS prompt | n/a | n/a | nothing logged; the restored kernel hangs before journald writes |
 
-All measured on battery with the lid open, for 10 minutes, using [sleep-test.sh](sleep-test.sh). For comparison, the awake idle draw on amdgpu is about 30 W.
+All measured on battery with the lid open, for 10 minutes, using [sleep-test.sh](sleep-test.sh). The script measures the awake draw just before sleeping and subtracts the seconds spent awake inside the window. The patched-amdgpu figure is that corrected value. The older radeon and s2idle rows were measured before this correction, but they're barely affected: radeon on Mint had the MTRR patch (fast resume), and s2idle draw is close to the awake draw anyway. For comparison, the awake idle draw on amdgpu is about 30 W.
 
 **Slow wake from S3 (MTRR bug).** The patch and an Ubuntu build script are in [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel). Apple firmware changes the CPU cache settings (MTRRs) during S3 on half the cores, and those cores run extremely slowly until the kernel restores them. "Enabling non-boot CPUs" takes 0.7–5 s per CPU, about 15–23 s in total. CPU 4, the boot core's hyperthread sibling, comes back fast. The fix is an unmerged patch written for exactly this Mac: [x86/mtrr: Expedite cache init if MTRRs change on resume](https://lkml.iu.edu/hypermail/linux/kernel/2602.0/05829.html) (Chris Paulson-Ellis, Feb 2026). On Mint it cut kernel resume from 15 s to about 5 s, and dmesg then shows `mtrr: your CPUs had unexpected MTRR settings on resume`. Check whether it has been merged before building it.
 
@@ -125,6 +126,28 @@ The fix is [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh). It needs systemd and Pyth
 
 After recovery the radio may be soft-blocked: `rfkill unblock bluetooth`. The first scan can be slow. One untested theory is that 2.4 GHz Wi-Fi on channel 1 shares the antenna.
 
+## Wi-Fi
+
+Wi-Fi works out of the box with brcmfmac and firmware 7.35.177.61. It warns `no clm_blob available`, which may limit the available channels. Omarchy's Apple installer step adds `options brcmfmac feature_disable=0x82000` (`/etc/modprobe.d/brcmfmac.conf`), because Broadcom's in-firmware supplicant fails the WPA handshake on Apple hardware; Mint ran fine without it.
+
+**After deep sleep (S3) the chip sometimes doesn't come back.** S3 cuts the chip's power, which s2idle doesn't. Usually Wi-Fi reconnects about 2–3 s after resume. Sometimes, though, the firmware stops answering: right after resume dmesg shows `brcmf_msgbuf_query_dcmd: Timeout on response for query command`, then endless `-5` and later `-12` errors (`Failed to reserve space in commonring`, `scan error`), and there are no networks until a reboot. On Omarchy it happened on 1 of 2 S3 cycles, and the second cycle was fine.
+
+**Recovery:** [wifi/wifi-reload.sh](wifi/wifi-reload.sh) (`sudo bash wifi-reload.sh`). It reloads the driver, which reloads the chip's firmware, and if no interface appears it also removes and rescans the PCI device. A plain `modprobe -r brcmfmac` fails, because the vendor module `brcmfmac_wcc` holds a reference to it, so remove `brcmfmac_wcc` first.
+
+**Planned fix (not installed yet):** a systemd sleep hook that unloads the driver before deep sleep and loads it again after resume, so the chip starts fresh every time instead of resuming. It's limited to deep sleep, because s2idle keeps the chip powered and doesn't need it.
+
+```sh
+#!/bin/sh
+# /usr/lib/systemd/system-sleep/brcmfmac   (chmod +x)
+case "$1" in
+    pre)  grep -q '\[deep\]' /sys/power/mem_sleep && modprobe -r brcmfmac_wcc brcmfmac ;;
+    post) modprobe brcmfmac ;;
+esac
+exit 0
+```
+
+`rtcwake` writes straight to `/sys/power/state` and skips systemd's sleep hooks. To test the hook, set an RTC alarm and suspend through systemd: `echo +30 | sudo tee /sys/class/rtc/rtc0/wakealarm && systemctl suspend`.
+
 ## Camera (FaceTime HD)
 
 Use the [patjak/facetimehd](https://github.com/patjak/facetimehd) driver through DKMS, plus the firmware from [patjak/facetimehd-firmware](https://github.com/patjak/facetimehd-firmware), which extracts it from Apple's Boot Camp package. On Arch use the AUR packages `facetimehd-dkms` and `facetimehd-firmware`; elsewhere, build it with DKMS from source (commit `c9b063a3c0`, version 0.7.0.1, worked with kernel 7.0). Blacklist `bdc_pci` (`/etc/modprobe.d/facetimehd.conf`). When it's healthy, dmesg shows `facetimehd ... loaded set file facetimehd/1871_01XX.dat`, and `/dev/video0` gives 1280×720 at 30 fps. Apps that read the camera through PipeWire (Cheese, possibly browsers and OBS) can fail with `can't negotiate buffers`. Apps that use v4l2 directly (guvcview, `gst-launch-1.0 v4l2src`) work.
@@ -138,7 +161,6 @@ Use the [patjak/facetimehd](https://github.com/patjak/facetimehd) driver through
 
 ## Other
 
-- **Wi-Fi:** brcmfmac firmware 7.35.177.61. Omarchy's Apple installer step adds `options brcmfmac feature_disable=0x82000` (`/etc/modprobe.d/brcmfmac.conf`) as a BCM43602 stability workaround; Mint ran fine without it. It warns `no clm_blob available`, which may limit the available channels, and reconnects about 3 s after resume.
 - **Keyboard:** `options hid_apple fnmode=2` makes F1–F12 act as function keys; hold Fn for media keys.
 - **NVMe:** every suspend logs `Refused to change power state from D1 to D3hot`. No effect has been seen.
 - **Trackpad:** `bcm5974: Touch jump detected and discarded` is harmless log noise.

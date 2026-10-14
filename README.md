@@ -7,6 +7,7 @@
 | [linux-mint.md](linux-mint.md) | Previous install: GRUB/initramfs-tools, recovery, Ubuntu MTRR kernel build, Cinnamon extras |
 | [sleep-test.sh](sleep-test.sh) | Measures battery drain of s2idle / deep / awake (any systemd distro) |
 | [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh) | Fixes the Bluetooth chip hanging at boot (any systemd distro) |
+| [wifi/wifi-reload.sh](wifi/wifi-reload.sh) | Brings Wi-Fi back when it dies after deep sleep |
 | [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel) | MTRR resume patch (fixes the slow wake from deep sleep) + Ubuntu kernel build script |
 | [fans/](https://github.com/mkucharek/mbp-2015-linux/tree/main/fans) | Smoothed fan daemon: a fallback only, since the SMC's own fan control was fine on Omarchy |
 

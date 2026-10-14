@@ -10,12 +10,13 @@ As of 2026-10-14. Omarchy-specific setup only; the hardware findings, kernel par
 | --- | --- | --- |
 | GPU driver | `radeon.si_support=0 amdgpu.si_support=1` | `/etc/default/limine` |
 | amdgpu video blocks off | `amdgpu.ip_block_mask=0x7f` | `/etc/default/limine` |
+| amdgpu deep-sleep fix | patched `amdgpu.ko` in `updates/` + `amdgpu.si_fb_restore=1` | `/etc/default/limine`; module built locally for 7.2.5-3 only |
 | IOMMU off, NVMe APST off | `intel_iommu=off nvme_core.default_ps_max_latency_us=0` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
-| Sleep mode | `mem_sleep_default=s2idle` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
+| Sleep mode | `mem_sleep_default=deep` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
 | Bluetooth fix | btusb option + udev rule + `bt-check.service` | [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh) |
 | Fans | no daemon (SMC automatic) | — |
 
-**Decision (2026-10-14):** stay on amdgpu for Vulkan and a working Chromium, accepting that sleep is s2idle at about 22 W (about 5 h on a full battery). Shut down for long breaks. If real sleep becomes more important, switch to radeon + deep (see Fallback).
+**Decision (2026-10-14):** stay on amdgpu for Vulkan and a working Chromium. With the patched module, deep sleep works at about 0.46 W (about 9 days on a full battery) instead of s2idle at about 22 W. **A kernel update brings back the stock module, which hangs on resume from deep sleep:** switch `mem_sleep_default` back to `s2idle` before updating linux-omarchy, until the module is rebuilt for the new kernel.
 
 ## Boot options
 
@@ -41,7 +42,7 @@ cat /proc/cmdline                                     # after reboot
 
 ## Sleep, lid and power
 
-- **Lid / idle:** Omarchy defaults, with no `HandleLidSwitch` override, so closing the lid suspends into s2idle.
+- **Lid / idle:** Omarchy defaults, with no `HandleLidSwitch` override, so closing the lid suspends into deep sleep (S3).
 - **logind drop-ins:**
   - `10-ignore-power-button.conf` (`HandlePowerKey=ignore`)
   - `20-inhibit-delay.conf` (`InhibitDelayMaxSec=15`, which gives `omarchy-sleep-lock.service` time to lock before sleep)
@@ -74,6 +75,7 @@ You lose Vulkan, and the Chromium artifacts seen on radeon here are unexplained.
 
 - [x] Measure s2idle drain: ~22 W (2026-10-14)
 - [ ] Run `bluetooth/bt-fix.sh`, then watch `journalctl -u bt-check -b` over the next few boots
+- [ ] Wi-Fi after deep sleep: if it dies, run `sudo bash wifi/wifi-reload.sh`; if it keeps happening, install the brcmfmac sleep hook from hardware.md (Wi-Fi)
 - [ ] FaceTime HD camera: AUR `facetimehd-dkms` + `facetimehd-firmware`, blacklist `bdc_pci`
 - [ ] Optional: radeon + deep + MTRR-patched kernel
 - [ ] Optional: test hibernate on radeon
