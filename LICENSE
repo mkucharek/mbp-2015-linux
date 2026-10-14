@@ -4,6 +4,7 @@ This repository uses three licences:
 - Documentation (*.md): Creative Commons Attribution 4.0 International (CC BY 4.0),
   https://creativecommons.org/licenses/by/4.0/
 - kernel/mtrr-resume.patch: Linux kernel code by Chris Paulson-Ellis, GPL-2.0 (see its header).
+- kernel/amdgpu-si-reset-on-init.patch: Linux kernel code, GPL-2.0 (the license of the file it changes).
 
 MIT License
 

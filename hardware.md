@@ -2,7 +2,7 @@
 
 As of 2026-10-14. This file covers everything that applies on any distro. Distro-specific setup is in [omarchy.md](omarchy.md) and [linux-mint.md](linux-mint.md). The findings come from two installs on this same Mac: Linux Mint 22.3 (kernel 7.0, radeon) and Omarchy (kernel 7.2.5, amdgpu).
 
-Linux runs well on this Mac with four kernel parameters, a Bluetooth workaround, and one hard trade-off. On the AMD GPU, stock kernels give you **Vulkan (amdgpu) or real sleep (radeon), not both**; a patched amdgpu gives both (see Sleep & suspend). The internal screen is wired to the AMD GPU, and that causes most of the quirks.
+Linux runs well on this Mac with four kernel parameters, a Bluetooth workaround, and one hard trade-off. On the AMD GPU, stock kernels give you **Vulkan (amdgpu) or real sleep (radeon), not both**. A small amdgpu patch, submitted upstream, gives both (see [Deep sleep on amdgpu](#deep-sleep-on-amdgpu)). The internal screen is wired to the AMD GPU, and that causes most of the quirks.
 
 ## Hardware
 
@@ -28,7 +28,7 @@ Add these to whatever bootloader the distro uses:
 | `nvme_core.default_ps_max_latency_us=0` | for this SSD | Turns off NVMe low-power states (APST). The SX8200 Pro is known to freeze, drop off the bus, or go read-only in them, especially in Macs. Next step if problems persist: `pcie_aspm=off`. |
 | `radeon.si_support=1 amdgpu.si_support=0` **or** `radeon.si_support=0 amdgpu.si_support=1` | always pick one | Chooses the driver for the SI GPU (see GPU). Since kernel 7.0 the default is amdgpu, so radeon has to be forced explicitly. |
 | `amdgpu.ip_block_mask=0x7f` | amdgpu only | Turns off the UVD (video decode) and VCE (video encode) blocks, which can't resume from s2idle (see Sleep). |
-| `mem_sleep_default=s2idle` | amdgpu only | Deep (S3) sleep hangs on amdgpu. On radeon, keep the default `deep`. |
+| `mem_sleep_default=s2idle` | stock amdgpu only | Deep (S3) sleep hangs on stock amdgpu. On radeon, or on amdgpu with the patch from [Deep sleep on amdgpu](#deep-sleep-on-amdgpu), keep the default `deep`. |
 
 Check with `cat /proc/cmdline` after rebooting.
 
@@ -52,7 +52,7 @@ Check with `cat /proc/cmdline` after rebooting.
 | VA-API video decode | worked on Mint/Xorg; failed on Omarchy/Wayland (`radeonsi_drv_video.so init failed`) | off because of `ip_block_mask` |
 | Idle temperature / fans | baseline | about 3 °C warmer, about 600 rpm more fan. Memory clock pinned at 1125 MHz, no clock gating on SI; `power_dpm_force_performance_level=low` doesn't fix either |
 | Awake idle draw | not measured | ~30 W |
-| Deep sleep (S3) | works, 0.21 W | hangs on resume |
+| Deep sleep (S3) | works, 0.21 W | hangs on resume; works with the patch, ~0.46 W |
 | s2idle | ~21 W; broke VCE and lost the panel EDID | ~22 W, works only with the mask |
 | Hibernate | not tested | restore hangs |
 | Chromium (Omarchy, Wayland) | rendering artifacts with `intel_iommu=off` already set; only `--disable-gpu` fixed them. Unexplained. | fine |
@@ -76,7 +76,7 @@ This would fix idle heat and draw, and maybe sleep. You'd lose about half the 3D
 
 ## Sleep & suspend
 
-**Real sleep means deep (S3).** s2idle resumes on amdgpu once UVD/VCE are masked, but it isn't really sleep on this hardware, because Haswell Macs have no S0ix low-power idle. radeon handles deep sleep out of the box. Stock amdgpu hangs on resume from deep sleep, because re-initialising the GPU moves its VRAM and amdgpu never moves it back. A patched amdgpu module (`amdgpu.si_fb_restore=1`) fixes that; the write-up and patch are still to come.
+**Real sleep means deep (S3).** s2idle resumes on amdgpu once UVD/VCE are masked, but it isn't really sleep on this hardware, because Haswell Macs have no S0ix low-power idle. radeon handles deep sleep out of the box. Stock amdgpu hangs on resume from deep sleep, and a small patch fixes that (see [Deep sleep on amdgpu](#deep-sleep-on-amdgpu)).
 
 | Driver | Mode | Result | Draw | Full battery lasts | Failure in the log |
 | --- | --- | --- | --- | --- | --- |
@@ -90,6 +90,23 @@ This would fix idle heat and draw, and maybe sleep. You'd lose about half the 3D
 
 All measured on battery with the lid open, for 10 minutes, using [sleep-test.sh](sleep-test.sh). The script measures the awake draw just before sleeping and subtracts the seconds spent awake inside the window. The patched-amdgpu figure is that corrected value. The older radeon and s2idle rows were measured before this correction, but they're barely affected: radeon on Mint had the MTRR patch (fast resume), and s2idle draw is close to the awake draw anyway. For comparison, the awake idle draw on amdgpu is about 30 W.
 
+### Deep sleep on amdgpu
+
+**Symptom:** with stock amdgpu, every resume from deep sleep (S3) fails, and so does a GPU reset. The screen stays black, and the log shows `ring gfx test failed (-110)` and `resume of IP block <gfx_v6_0> failed -110`. The system itself stays up. The same failure is reported on stock Arch 7.2.9 in [drm/amd #5978](https://gitlab.freedesktop.org/drm/amd/-/issues/5978).
+
+**Cause** (verified with register dumps on this Mac):
+
+- With the Intel GPU enabled, Apple's firmware puts the AMD GPU's VRAM at MC address 0 (`MC_VM_FB_LOCATION=0x007f0000`). The kernel's EFI stub enables the Intel GPU on this model through Apple's `set_os` call, and there is no boot option to skip it.
+- amdgpu reads this layout once at load and places everything relative to it, for example the GART page table at 0x1400000.
+- S3 powers the GPU off, so on resume amdgpu runs the VBIOS init again. That moves VRAM to the VBIOS default (`MC_VM_FB_LOCATION=0xf47ff400`, VRAM at 0xF4_0000_0000).
+- amdgpu never writes this register back, so the GART table is no longer in VRAM, and the first GPU command times out. radeon writes the register on every start, which is why radeon resumes fine.
+
+**Fix:** [kernel/amdgpu-si-reset-on-init.patch](kernel/amdgpu-si-reset-on-init.patch) makes amdgpu reset and initialise the GPU itself at load, on Apple boards with VRAM at 0. amdgpu then uses the VBIOS layout from the start, and later re-inits keep it. The boot log shows `PCI CONFIG reset`, `GPU posting now...` and `VRAM: 2048M 0x000000F400000000`. This is the same approach that the kernel already uses for the 2017 and 2018 MacBook Pros with Polaris GPUs.
+
+- Tested on 7.2.5: the panel comes up at boot, every S3 resume works (4 of 4 test cycles and a 5-minute lid-close), and Wi-Fi comes back after about 4 s. The GPU reset path is not tested.
+- Submitted upstream to amd-gfx on 2026-10-14 ([drm/amd #5978](https://gitlab.freedesktop.org/drm/amd/-/issues/5978)). Until it reaches a release kernel, build amdgpu with the patch yourself: [kernel/amdgpu-module/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module) builds and installs only the module (steps for Omarchy are in [omarchy.md](omarchy.md)).
+- A patched module only works with the kernel version it was built for. After a kernel update, the distro's stock module is back until you rebuild, so switch to s2idle before updating.
+
 **Slow wake from S3 (MTRR bug).** The patch and an Ubuntu build script are in [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel). Apple firmware changes the CPU cache settings (MTRRs) during S3 on half the cores, and those cores run extremely slowly until the kernel restores them. "Enabling non-boot CPUs" takes 0.7–5 s per CPU, about 15–23 s in total. CPU 4, the boot core's hyperthread sibling, comes back fast. The fix is an unmerged patch written for exactly this Mac: [x86/mtrr: Expedite cache init if MTRRs change on resume](https://lkml.iu.edu/hypermail/linux/kernel/2602.0/05829.html) (Chris Paulson-Ellis, Feb 2026). On Mint it cut kernel resume from 15 s to about 5 s, and dmesg then shows `mtrr: your CPUs had unexpected MTRR settings on resume`. Check whether it has been merged before building it.
 
 **Lid open:** sleeping with the lid open wakes the Mac after about 2 s, because the lid sensor (`LID0` in `/proc/acpi/wakeup`) is a wake source. That's harmless in normal use.
@@ -100,7 +117,7 @@ All measured on battery with the lid open, for 10 minutes, using [sleep-test.sh]
 
 ## Hibernate
 
-Hibernate is untested on radeon, and the restore hangs on amdgpu. That's most likely because the GPU loses power just as in S3, and amdgpu can't re-initialise this card afterwards. Until hibernate works, suspend-then-hibernate isn't an option. If it ever works, the config is:
+Hibernate is untested on radeon, and the restore hangs on stock amdgpu. That's most likely the same problem as S3: the GPU loses power, and amdgpu can't re-initialise it afterwards. The amdgpu patch may fix hibernate too; not tested yet. Until hibernate works, suspend-then-hibernate isn't an option. If it ever works, the config is:
 
 ```ini
 # /etc/systemd/sleep.conf.d/suspend-then-hibernate.conf
