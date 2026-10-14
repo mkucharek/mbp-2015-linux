@@ -33,7 +33,7 @@ sudo update-initramfs -u -k all
 
 ## MTRR kernel (Ubuntu-specific build)
 
-The scripts are in [kernel/](kernel/):
+The scripts are in [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel):
 
 - `build-kernel-ubuntu.sh prepare|build`, then `sudo bash build-kernel-ubuntu.sh install|remove`
 - `mtrr-resume.patch`, extracted from the LKML post
@@ -44,7 +44,7 @@ On another distro, apply `mtrr-resume.patch` to that distro's kernel package ins
 
 ## Fans
 
-mbpfan was installed early and made the fans loud. It was replaced by `mbp-fan-smooth` ([fans/](fans/): `sudo bash fan-smooth.sh` installs it, and it reverts to SMC automatic mode when stopped), which:
+mbpfan was installed early and made the fans loud. It was replaced by `mbp-fan-smooth` ([fans/](https://github.com/mkucharek/mbp-2015-linux/tree/main/fans): `sudo bash fan-smooth.sh` installs it, and it reverts to SMC automatic mode when stopped), which:
 
 - smooths the temperature over 15 s
 - runs the fans at minimum up to 70 °C, scaling linearly to maximum at 90 °C

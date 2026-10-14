@@ -7,8 +7,8 @@
 | [linux-mint.md](linux-mint.md) | Previous install: GRUB/initramfs-tools, recovery, Ubuntu MTRR kernel build, Cinnamon extras |
 | [sleep-test.sh](sleep-test.sh) | Measures battery drain of s2idle / deep / awake (any systemd distro) |
 | [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh) | Fixes the Bluetooth chip hanging at boot (any systemd distro) |
-| [kernel/](kernel/) | MTRR resume patch (fixes the slow wake from deep sleep) + Ubuntu kernel build script |
-| [fans/](fans/) | Smoothed fan daemon: a fallback only, since the SMC's own fan control was fine on Omarchy |
+| [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel) | MTRR resume patch (fixes the slow wake from deep sleep) + Ubuntu kernel build script |
+| [fans/](https://github.com/mkucharek/mbp-2015-linux/tree/main/fans) | Smoothed fan daemon: a fallback only, since the SMC's own fan control was fine on Omarchy |
 
 **In short:** always use `intel_iommu=off` and `nvme_core.default_ps_max_latency_us=0`. Then choose:
 
