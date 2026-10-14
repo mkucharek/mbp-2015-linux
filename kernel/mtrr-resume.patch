@@ -1,0 +1,153 @@
+From: Chris Paulson-Ellis
+Subject: [PATCH] x86/mtrr: Expedite cache init if MTRRs change on resume
+Date: 2026-02-04
+Source: https://lkml.iu.edu/hypermail/linux/kernel/2602.0/05829.html
+License: GPL-2.0 (Linux kernel code). Extracted from the LKML post above; not merged
+upstream as of 2026-10-14. Applies cleanly to Ubuntu 7.0.0-38. patch(1) and git apply
+skip this header.
+
+diff --git a/arch/x86/include/asm/mtrr.h b/arch/x86/include/asm/mtrr.h
+index 76b95bd1a405..bc5872e57f3c 100644
+--- a/arch/x86/include/asm/mtrr.h
++++ b/arch/x86/include/asm/mtrr.h
+@@ -60,7 +60,7 @@ extern int mtrr_trim_uncached_memory(unsigned long end_pfn);
+ extern int amd_special_default_mtrr(void);
+ void mtrr_disable(void);
+ void mtrr_enable(void);
+-void mtrr_generic_set_state(void);
++bool mtrr_generic_set_state(void);
+ #  else
+ static inline void guest_force_mtrr_state(struct mtrr_var_range *var,
+ 					  unsigned int num_var,
+@@ -105,7 +105,10 @@ static inline int mtrr_trim_uncached_memory(unsigned long end_pfn)
+ #define mtrr_bp_init() do {} while (0)
+ #define mtrr_disable() do {} while (0)
+ #define mtrr_enable() do {} while (0)
+-#define mtrr_generic_set_state() do {} while (0)
++static inline bool mtrr_generic_set_state(void)
++{
++	return false;
++}
+ #  endif
+ 
+ #ifdef CONFIG_COMPAT
+diff --git a/arch/x86/kernel/cpu/cacheinfo.c b/arch/x86/kernel/cpu/cacheinfo.c
+index 51a95b07831f..7911beffc339 100644
+--- a/arch/x86/kernel/cpu/cacheinfo.c
++++ b/arch/x86/kernel/cpu/cacheinfo.c
+@@ -710,15 +710,16 @@ void cache_enable(void) __releases(cache_disable_lock)
+ 	raw_spin_unlock(&cache_disable_lock);
+ }
+ 
+-static void cache_cpu_init(void)
++static bool cache_cpu_init(void)
+ {
+ 	unsigned long flags;
++	bool changed = false;
+ 
+ 	local_irq_save(flags);
+ 
+ 	if (memory_caching_control & CACHE_MTRR) {
+ 		cache_disable();
+-		mtrr_generic_set_state();
++		changed = mtrr_generic_set_state();
+ 		cache_enable();
+ 	}
+ 
+@@ -726,6 +727,8 @@ static void cache_cpu_init(void)
+ 		pat_cpu_init();
+ 
+ 	local_irq_restore(flags);
++
++	return changed;
+ }
+ 
+ static bool cache_aps_delayed_init = true;
+@@ -743,7 +746,7 @@ bool get_cache_aps_delayed_init(void)
+ static int cache_rendezvous_handler(void *unused)
+ {
+ 	if (get_cache_aps_delayed_init() || !cpu_online(smp_processor_id()))
+-		cache_cpu_init();
++		(void)cache_cpu_init();
+ 
+ 	return 0;
+ }
+@@ -754,20 +757,31 @@ void __init cache_bp_init(void)
+ 	pat_bp_init();
+ 
+ 	if (memory_caching_control)
+-		cache_cpu_init();
++		(void)cache_cpu_init();
+ }
+ 
++static bool cache_bp_changed_on_restore;
++
+ void cache_bp_restore(void)
+ {
+ 	if (memory_caching_control)
+-		cache_cpu_init();
++		cache_bp_changed_on_restore = cache_cpu_init();
+ }
+ 
+ static int cache_ap_online(unsigned int cpu)
+ {
+ 	cpumask_set_cpu(cpu, cpu_cacheinfo_mask);
+ 
+-	if (!memory_caching_control || get_cache_aps_delayed_init())
++	if (!memory_caching_control)
++		return 0;
++
++	/*
++	 * Normally we delay MTRR (and PAT) init until cache_aps_init(), but if
++	 * the MTRRs had to be restored on the boot processor on resume, then
++	 * delaying any required MTTR restore on the APs can lead to very slow
++	 * CPU execution during the period when the MTRRs are inconsistent.
++	 */
++	if (get_cache_aps_delayed_init() && !cache_bp_changed_on_restore)
+ 		return 0;
+ 
+ 	/*
+@@ -803,8 +817,13 @@ void cache_aps_init(void)
+ 	if (!memory_caching_control || !get_cache_aps_delayed_init())
+ 		return;
+ 
+-	stop_machine(cache_rendezvous_handler, NULL, cpu_online_mask);
++	if (cache_bp_changed_on_restore)
++		pr_warn("mtrr: your CPUs had unexpected MTRR settings on resume\n");
++	else
++		stop_machine(cache_rendezvous_handler, NULL, cpu_online_mask);
++
+ 	set_cache_aps_delayed_init(false);
++	cache_bp_changed_on_restore = false;
+ }
+ 
+ static int __init cache_ap_register(void)
+diff --git a/arch/x86/kernel/cpu/mtrr/generic.c b/arch/x86/kernel/cpu/mtrr/generic.c
+index 0863733858dc..6d96fde84275 100644
+--- a/arch/x86/kernel/cpu/mtrr/generic.c
++++ b/arch/x86/kernel/cpu/mtrr/generic.c
+@@ -960,12 +960,14 @@ void mtrr_enable(void)
+ 	mtrr_wrmsr(MSR_MTRRdefType, deftype_lo, deftype_hi);
+ }
+ 
+-void mtrr_generic_set_state(void)
++bool mtrr_generic_set_state(void)
+ {
+ 	unsigned long mask, count;
++	bool changed;
+ 
+ 	/* Actually set the state */
+ 	mask = set_mtrr_state();
++	changed = mask != 0;
+ 
+ 	/* Use the atomic bitops to update the global mask */
+ 	for (count = 0; count < sizeof(mask) * 8; ++count) {
+@@ -973,6 +975,8 @@ void mtrr_generic_set_state(void)
+ 			set_bit(count, &smp_changes_mask);
+ 		mask >>= 1;
+ 	}
++
++	return changed;
+ }
+ 
+ /**
