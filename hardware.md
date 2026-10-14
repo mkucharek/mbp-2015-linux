@@ -12,7 +12,7 @@ Linux runs well on this Mac with four kernel parameters, a Bluetooth workaround,
 - **dGPU:** AMD Radeon R9 M370X "Venus XT" `1002:6821`, Southern Islands (SI / GFX6), supported by both radeon and amdgpu
 - **Panel:** 2880×1800 eDP, routed through `apple_gmux` (4.0.20), which comes up on the AMD GPU at boot
 - **SSD:** ADATA XPG SX8200 Pro (SX8200PNP, fw 32A1TCTB), aftermarket NVMe on an M.2 adapter
-- **Wi-Fi:** Broadcom BCM43602 `14e4:43ba`, brcmfmac, works out of the box (see Wi-Fi for the deep-sleep issue)
+- **Wi-Fi:** Broadcom BCM43602 `14e4:43ba`, brcmfmac, works out of the box (see Wi-Fi for the deep-sleep and hibernate issues)
 - **Bluetooth:** Apple BCM20703A1, USB `05ac:8290` on port `1-8`
 - **Camera:** FaceTime HD `14e4:1570`, needs the out-of-tree `facetimehd` driver
 - **Other:** Thunderbolt 2 (Falcon Ridge), keyboard/trackpad USB `05ac:0274` (bcm5974)
@@ -54,7 +54,7 @@ Check with `cat /proc/cmdline` after rebooting.
 | Awake idle draw | not measured | ~30 W |
 | Deep sleep (S3) | works, 0.21 W | hangs on resume; works with the patch, ~0.46 W |
 | s2idle | ~21 W; broke VCE and lost the panel EDID | ~22 W, works only with the mask |
-| Hibernate | not tested | restore hangs |
+| Hibernate | not tested | works with the patch, if Wi-Fi is unloaded first (see [Hibernate](#hibernate)) |
 | Chromium (Omarchy, Wayland) | rendering artifacts with `intel_iommu=off` already set; only `--disable-gpu` fixed them. Unexplained. | fine |
 
 ### `amdgpu.ip_block_mask=0x7f`
@@ -86,7 +86,8 @@ This would fix idle heat and draw, and maybe sleep. You'd lose about half the 3D
 | amdgpu + mask + patch | deep (S3) | **works** | ~0.46 W | ~9 days | none; 1.40 W over the whole 10 min window, which includes ~22 s awake (mostly the slow resume) |
 | amdgpu | s2idle | hangs | n/a | n/a | `UVD Firmware validate fail (-22)`, `resume of IP block <uvd_v3_1> failed`, then endless `Fence fallback timer expired on ring sdma0` |
 | amdgpu + mask | s2idle | **works** | ~22 W | ~5 h | none; resume 0.4 s |
-| amdgpu + mask | hibernate | dark screen after the LUKS prompt | n/a | n/a | nothing logged; the restored kernel hangs before journald writes |
+| amdgpu + mask | hibernate | dark screen after the LUKS prompt | n/a | n/a | nothing logged; the restored kernel hangs before journald writes. Wi-Fi was loaded, so the cause is unclear |
+| amdgpu + mask + patch | hibernate | hangs with Wi-Fi loaded; **works** with the brcmfmac sleep hook | off | n/a | none; amdgpu restore takes ~1.2 s |
 
 All measured on battery with the lid open, for 10 minutes, using [sleep-test.sh](sleep-test.sh). The script measures the awake draw just before sleeping and subtracts the seconds spent awake inside the window. The patched-amdgpu figure is that corrected value. The older radeon and s2idle rows were measured before this correction, but they're barely affected: radeon on Mint had the MTRR patch (fast resume), and s2idle draw is close to the awake draw anyway. For comparison, the awake idle draw on amdgpu is about 30 W.
 
@@ -117,17 +118,31 @@ All measured on battery with the lid open, for 10 minutes, using [sleep-test.sh]
 
 ## Hibernate
 
-Hibernate is untested on radeon, and the restore hangs on stock amdgpu. That's most likely the same problem as S3: the GPU loses power, and amdgpu can't re-initialise it afterwards. The amdgpu patch may fix hibernate too; not tested yet. Until hibernate works, suspend-then-hibernate isn't an option. If it ever works, the config is:
+Hibernate works on amdgpu with the patch from [Deep sleep on amdgpu](#deep-sleep-on-amdgpu), as long as the Wi-Fi driver is unloaded before hibernating. Untested on radeon. Tested on 7.2.5 with LUKS + a btrfs swap file:
+
+- **amdgpu:** restores in about 1.2 s with the patch. When hibernating, amdgpu resets the GPU (`PCI CONFIG reset`), and the patched module keeps VRAM at the same place through the reset and the restore. A forced reset while running (`cat /sys/kernel/debug/dri/<n>/amdgpu_gpu_recover`) also works, but the GPU loses VRAM, and Hyprland crashes and restarts in safe mode.
+- **Wi-Fi (brcmfmac):** with the driver loaded, the restored system hung on all 4 tries, on a black or frozen lock screen, with no keyboard response and nothing in the log. With the driver unloaded before hibernating, the restore works, Thunderbolt included. The fix is the same sleep hook that handles Wi-Fi after deep sleep (see [Wi-Fi](#wi-fi)). Wi-Fi reconnects about 5 s after the restore.
+- **CPUs** come back right away; the slow MTRR wake from S3 doesn't happen here.
+
+**Testing tips:**
+
+- `echo test_resume > /sys/power/disk` hangs on amdgpu even when real hibernate works, so it's not a useful test. The likely reason: amdgpu's freeze callback runs twice on an already suspended GPU in that mode.
+- `echo devices > /sys/power/pm_test`, then `echo disk > /sys/power/state`, runs every driver's hibernate freeze, waits 5 s and resumes. No image is written and nothing powers off.
+- A hang on restore leaves nothing in the journal. To find the driver, unload suspects (`modprobe -r`) before hibernating and add them back one at a time. After a hang, the next boot is a normal cold boot, because the kernel clears the image signature as soon as it starts reading the image.
+
+**suspend-then-hibernate** (deep sleep first, then hibernate after `HibernateDelaySec`; the Mac wakes itself with an RTC alarm to do it). Not tested yet. The Wi-Fi hook covers both phases: systemd runs it as `suspend-then-hibernate` around the deep sleep and as `hibernate` around the hibernate.
 
 ```ini
 # /etc/systemd/sleep.conf.d/suspend-then-hibernate.conf
 [Sleep]
 HibernateDelaySec=2h
 
-# /etc/systemd/logind.conf.d/lid.conf
+# /etc/systemd/logind.conf.d/30-lid-suspend-then-hibernate.conf
 [Login]
 HandleLidSwitch=suspend-then-hibernate
 ```
+
+Apply the logind change with `sudo systemctl kill -s HUP systemd-logind`. To test, set `HibernateDelaySec=2min` first and close the lid for about 3 minutes.
 
 ## Bluetooth
 
@@ -151,17 +166,9 @@ Wi-Fi works out of the box with brcmfmac and firmware 7.35.177.61. It warns `no 
 
 **Recovery:** [wifi/wifi-reload.sh](wifi/wifi-reload.sh) (`sudo bash wifi-reload.sh`). It reloads the driver, which reloads the chip's firmware, and if no interface appears it also removes and rescans the PCI device. A plain `modprobe -r brcmfmac` fails, because the vendor module `brcmfmac_wcc` holds a reference to it, so remove `brcmfmac_wcc` first.
 
-**Planned fix (not installed yet):** a systemd sleep hook that unloads the driver before deep sleep and loads it again after resume, so the chip starts fresh every time instead of resuming. It's limited to deep sleep, because s2idle keeps the chip powered and doesn't need it.
+**Hibernate hangs on restore when brcmfmac is loaded** (see [Hibernate](#hibernate)).
 
-```sh
-#!/bin/sh
-# /usr/lib/systemd/system-sleep/brcmfmac   (chmod +x)
-case "$1" in
-    pre)  grep -q '\[deep\]' /sys/power/mem_sleep && modprobe -r brcmfmac_wcc brcmfmac ;;
-    post) modprobe brcmfmac ;;
-esac
-exit 0
-```
+**Fix for both:** [wifi/brcmfmac-sleep](wifi/brcmfmac-sleep), a systemd sleep hook that unloads the driver before deep sleep or hibernate and loads it again after resume, so the chip starts with fresh firmware instead of resuming. s2idle keeps the chip powered, so the hook skips it. Install with `sudo install -Dm755 wifi/brcmfmac-sleep /usr/lib/systemd/system-sleep/brcmfmac`.
 
 `rtcwake` writes straight to `/sys/power/state` and skips systemd's sleep hooks. To test the hook, set an RTC alarm and suspend through systemd: `echo +30 | sudo tee /sys/class/rtc/rtc0/wakealarm && systemctl suspend`.
 

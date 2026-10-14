@@ -1,0 +1,23 @@
+#!/bin/sh
+# systemd sleep hook: unload brcmfmac before deep sleep (S3) and hibernate, and load it again
+# after resume, so the BCM43602 starts with fresh firmware instead of resuming.
+# s2idle keeps the chip powered and doesn't need this.
+# Install: sudo install -Dm755 brcmfmac-sleep /usr/lib/systemd/system-sleep/brcmfmac
+# $1 = pre|post, $2 = suspend|hibernate|hybrid-sleep|suspend-then-hibernate
+case "$1/$2" in
+    pre/suspend|pre/suspend-then-hibernate)
+        grep -q '\[deep\]' /sys/power/mem_sleep || exit 0
+        ;;
+esac
+case "$1" in
+    pre)
+        # brcmfmac_wcc/_cyw/_bca (vendor glue) hold a reference to brcmfmac; remove them first
+        mods=$(lsmod | awk '$1 ~ /^brcmfmac_/ {print $1}')
+        # shellcheck disable=SC2086
+        modprobe -r $mods brcmfmac
+        ;;
+    post)
+        modprobe brcmfmac
+        ;;
+esac
+exit 0

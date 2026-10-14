@@ -14,6 +14,7 @@ As of 2026-10-14. Omarchy-specific setup only; the hardware findings, kernel par
 | IOMMU off, NVMe APST off | `intel_iommu=off nvme_core.default_ps_max_latency_us=0` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
 | Sleep mode | `mem_sleep_default=deep` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
 | Bluetooth fix | btusb option + udev rule + `bt-check.service` | [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh) |
+| Wi-Fi sleep hook | unloads brcmfmac before deep sleep and hibernate | `/usr/lib/systemd/system-sleep/brcmfmac`, from [wifi/brcmfmac-sleep](wifi/brcmfmac-sleep) |
 | Fans | no daemon (SMC automatic) | — |
 
 **Decision (2026-10-14):** stay on amdgpu for Vulkan and a working Chromium. With the patched module, deep sleep works at about 0.46 W (about 9 days on a full battery) instead of s2idle at about 22 W. **A kernel update brings back the stock module, which hangs on resume from deep sleep:** switch to s2idle before updating linux-omarchy, and back to deep after rebuilding the module (see below).
@@ -46,7 +47,7 @@ cat /proc/cmdline                                     # after reboot
 - **logind drop-ins:**
   - `10-ignore-power-button.conf` (`HandlePowerKey=ignore`)
   - `20-inhibit-delay.conf` (`InhibitDelayMaxSec=15`, which gives `omarchy-sleep-lock.service` time to lock before sleep)
-- **Hibernate is prepared but unusable on amdgpu:**
+- **Hibernate works** (`systemctl hibernate`) with the patched module and the Wi-Fi sleep hook. Omarchy's installer set it up:
   - `/swap/swapfile` (15.5 GB, plus zram at higher priority)
   - `resume.conf`
   - the mkinitcpio drop-in `omarchy_resume.conf`, which adds the `resume` hook after `encrypt`
@@ -99,10 +100,12 @@ You lose Vulkan, and the Chromium artifacts seen on radeon here are unexplained.
 
 - [x] Measure s2idle drain: ~22 W (2026-10-14)
 - [ ] Run `bluetooth/bt-fix.sh`, then watch `journalctl -u bt-check -b` over the next few boots
-- [ ] Wi-Fi after deep sleep: if it dies, run `sudo bash wifi/wifi-reload.sh`; if it keeps happening, install the brcmfmac sleep hook from hardware.md (Wi-Fi)
+- [x] Wi-Fi sleep hook installed (2026-10-14); if Wi-Fi still dies after deep sleep, run `sudo bash wifi/wifi-reload.sh`
 - [ ] FaceTime HD camera: AUR `facetimehd-dkms` + `facetimehd-firmware`, blacklist `bdc_pci`
 - [ ] amdgpu patch upstream: watch [drm/amd #5978](https://gitlab.freedesktop.org/drm/amd/-/issues/5978) and amd-gfx; remove the override once the fix is in linux-omarchy
-- [ ] Test hibernate with the amdgpu patch
+- [x] Test hibernate with the amdgpu patch: works once brcmfmac is unloaded first (2026-10-14)
+- [x] Deep-sleep cycle through systemd with the Wi-Fi hook: resumes, Wi-Fi back in ~4.5 s (2026-10-14)
+- [ ] Optional: suspend-then-hibernate on lid close (config in hardware.md, Hibernate)
 - [ ] Optional: radeon + deep + MTRR-patched kernel
 - [ ] Optional: test hibernate on radeon
 - [ ] Optional, risky: boot-time Intel-only GPU mode (gpu-switch)
