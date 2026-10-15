@@ -1,0 +1,13 @@
+[Unit]
+Description=Warn that the patched amdgpu module isn't loaded
+ConditionPathExists=/run/amdgpu-stock-module
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+# give the notification daemon time to start
+ExecStartPre=/usr/bin/sleep 5
+ExecStart=/bin/sh -c 'notify-send -u critical -a amdgpu "Patched amdgpu module not loaded" "Kernel $(cat /run/amdgpu-stock-module) has the stock module. Deep sleep and hibernate are off until you rebuild it (kernel/amdgpu-module) and reboot."'
+
+[Install]
+WantedBy=graphical-session.target

@@ -8,7 +8,7 @@
 | [sleep-test.sh](sleep-test.sh) | Measures battery drain of s2idle / deep / awake (any systemd distro) |
 | [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh) | Fixes the Bluetooth chip hanging at boot (any systemd distro) |
 | [wifi/](https://github.com/mkucharek/mbp-2015-linux/tree/main/wifi) | Sleep hook that unloads Wi-Fi before deep sleep and hibernate (needed for hibernate); recovery script for when Wi-Fi dies anyway |
-| [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel) | amdgpu patch for deep sleep + module build/install scripts; MTRR resume patch (fixes the slow wake from deep sleep) + Ubuntu kernel build script |
+| [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel) | amdgpu patch for deep sleep + module build/install scripts + a guard that falls back to s2idle and notifies you after a kernel update; MTRR resume patch (fixes the slow wake from deep sleep) + Ubuntu kernel build script |
 | [fans/](https://github.com/mkucharek/mbp-2015-linux/tree/main/fans) | Smoothed fan daemon: a fallback only, since the SMC's own fan control was fine on Omarchy |
 
 **In short:** always use `intel_iommu=off` and `nvme_core.default_ps_max_latency_us=0`. Then choose:

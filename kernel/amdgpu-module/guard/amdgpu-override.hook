@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+# the kernel package the patched module is built for
+Target = linux-omarchy
+
+[Action]
+Description = Checking for the patched amdgpu module...
+When = PostTransaction
+Exec = /usr/local/bin/amdgpu-override-check --pacman

@@ -1,0 +1,37 @@
+#!/bin/sh
+# Guard for the patched amdgpu module, which only works with the kernel it was built for.
+#   amdgpu-override-check           at boot: if the patched module isn't loaded, switch this boot
+#                                   to s2idle, plain suspend on lid close and no hibernate, because
+#                                   the stock module hangs on resume from deep sleep. Everything
+#                                   goes under /run, so it resets at the next boot.
+#   amdgpu-override-check --pacman  after a kernel update: warn about kernels without the module
+#   amdgpu-override-check --force   apply the fallback anyway (to test it; a reboot undoes it)
+flag=/run/amdgpu-stock-module
+
+if [ "${1:-}" = --pacman ]; then
+    for d in /usr/lib/modules/*/; do
+        [ -e "$d/vmlinuz" ] || continue
+        [ -e "$d/updates/amdgpu.ko.zst" ] && continue
+        echo "WARNING: no patched amdgpu module for kernel $(basename "$d")."
+        echo "  After rebooting into it, deep sleep and hibernate stay off until you rebuild the module"
+        echo "  (kernel/amdgpu-module/build.sh + install.sh) and reboot again."
+    done
+    exit 0
+fi
+
+# Not an amdgpu boot (e.g. radeon): nothing to guard
+[ -d /sys/module/amdgpu ] || exit 0
+
+kver=$(uname -r)
+override=/usr/lib/modules/$kver/updates/amdgpu.ko.zst
+if [ "${1:-}" != --force ] && [ -e "$override" ] && [ "$(modinfo -F srcversion "$override")" = "$(cat /sys/module/amdgpu/srcversion)" ]; then
+    exit 0
+fi
+
+echo "$kver" > "$flag"
+echo s2idle > /sys/power/mem_sleep
+mkdir -p /run/systemd/logind.conf.d
+printf '[Login]\nHandleLidSwitch=suspend\n' > /run/systemd/logind.conf.d/99-amdgpu-stock-module.conf
+systemctl kill -s HUP systemd-logind 2>/dev/null || true
+systemctl mask --runtime --quiet hibernate.target suspend-then-hibernate.target hybrid-sleep.target
+echo "patched amdgpu module not loaded on $kver: s2idle, plain suspend on lid close, no hibernate for this boot"

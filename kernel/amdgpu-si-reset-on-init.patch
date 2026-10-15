@@ -5,22 +5,25 @@ left VRAM at MC address 0. Fixes deep sleep (S3) resume and GPU reset
 with amdgpu on the MacBookPro11,5 (Radeon R9 M370X). See hardware.md
 ("Deep sleep on amdgpu") for the cause.
 
-Submitted upstream to amd-gfx on 2026-10-14:
+Submitted upstream to amd-gfx: v1 on 2026-10-14, v2 on 2026-10-15 as
+patch 1 of a series that adds the same check for CIK and VI. The code is
+the same in both versions. Only the comment changed in v2.
 https://gitlab.freedesktop.org/drm/amd/-/issues/5978
 Applies to linux 7.2.x and amd-staging-drm-next (checked: 7.2.5).
 
 diff --git a/drivers/gpu/drm/amd/amdgpu/si.c b/drivers/gpu/drm/amd/amdgpu/si.c
-index 0adfd4b10..892e80f09 100644
+index 0adfd4b10..e5e590425 100644
 --- a/drivers/gpu/drm/amd/amdgpu/si.c
 +++ b/drivers/gpu/drm/amd/amdgpu/si.c
-@@ -1512,6 +1512,15 @@ static void si_invalidate_hdp(struct amdgpu_device *adev,
+@@ -1512,6 +1512,16 @@ static void si_invalidate_hdp(struct amdgpu_device *adev,
  
  static bool si_need_reset_on_init(struct amdgpu_device *adev)
  {
 +	/*
-+	 * MacBookPros with switchable graphics put VRAM at 0.  Any later post
-+	 * (S3 resume, GPU reset) moves it back to the vbios default, so reset
-+	 * and post on load to start with the vbios layout.
++	 * MacBookPros with switchable graphics put VRAM at 0 when the iGPU
++	 * is enabled.  Any later post (S3 resume, GPU reset) moves it back to
++	 * the vbios default, so reset and post on load to start with the
++	 * vbios layout.
 +	 */
 +	if (adev->pdev->subsystem_vendor == PCI_VENDOR_ID_APPLE &&
 +	    !(RREG32(mmMC_VM_FB_LOCATION) & MC_VM_FB_LOCATION__FB_BASE_MASK))

@@ -11,6 +11,7 @@ As of 2026-10-14. Omarchy-specific setup only; the hardware findings, kernel par
 | GPU driver | `radeon.si_support=0 amdgpu.si_support=1` | `/etc/default/limine` |
 | amdgpu video blocks off | `amdgpu.ip_block_mask=0x7f` | `/etc/default/limine` |
 | amdgpu deep-sleep fix | patched `amdgpu.ko` (reset at load) | `/usr/lib/modules/7.2.5-3-omarchy/updates/`; built for that kernel only, see [Patched amdgpu module](#patched-amdgpu-module) |
+| Kernel-update guard | pacman hook + boot check + notification | [kernel/amdgpu-module/guard/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module/guard) |
 | IOMMU off, NVMe APST off | `intel_iommu=off nvme_core.default_ps_max_latency_us=0` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
 | Sleep mode | `mem_sleep_default=deep` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
 | Lid close | suspend-then-hibernate, hibernate after 2 h | `/etc/systemd/logind.conf.d/30-lid-suspend-then-hibernate.conf`, `/etc/systemd/sleep.conf.d/suspend-then-hibernate.conf` |
@@ -18,7 +19,7 @@ As of 2026-10-14. Omarchy-specific setup only; the hardware findings, kernel par
 | Wi-Fi sleep hook | unloads brcmfmac before deep sleep and hibernate | `/usr/lib/systemd/system-sleep/brcmfmac`, from [wifi/brcmfmac-sleep](wifi/brcmfmac-sleep) |
 | Fans | no daemon (SMC automatic) | — |
 
-**Decision (2026-10-14):** stay on amdgpu for Vulkan and a working Chromium. With the patched module, deep sleep works at about 0.46 W (about 9 days on a full battery) instead of s2idle at about 22 W. **A kernel update brings back the stock module, which hangs on resume from deep sleep:** switch to s2idle before updating linux-omarchy, and back to deep after rebuilding the module (see below).
+**Decision (2026-10-14):** stay on amdgpu for Vulkan and a working Chromium. With the patched module, deep sleep works at about 0.46 W (about 9 days on a full battery) instead of s2idle at about 22 W. **A kernel update brings back the stock module, which hangs on resume from deep sleep.** The guard (see [Patched amdgpu module](#patched-amdgpu-module)) then falls back to s2idle for that boot and shows a notification; rebuild the module and reboot.
 
 ## Boot options
 
@@ -81,12 +82,19 @@ The module is unsigned, so loading it taints the kernel. That's harmless here, b
 
 **Kernel updates:** the module only matches the kernel it was built for.
 
-1. Before updating, switch to s2idle: `sudo sed -i 's/mem_sleep_default=deep/mem_sleep_default=s2idle/' /etc/limine-entry-tool.d/hardware-quirks.conf && sudo limine-update`.
-2. Update and reboot. The stock module is active now, and s2idle works with it.
-3. Rebuild the module for the new version (steps 2–8 above).
-4. Switch back to deep: the same `sed` with `s2idle` and `deep` swapped, then `sudo limine-update` and reboot.
+The guard in [kernel/amdgpu-module/guard/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module/guard) handles the switch (`sudo bash kernel/amdgpu-module/guard/install.sh`):
 
-While the stock module is active, don't close the lid for longer than `HibernateDelaySec`, or hibernate by hand: hibernate is only tested with the patched module.
+- **pacman hook:** after linux-omarchy is installed or updated, it prints a warning for any kernel without the patched module.
+- **Boot check** (`amdgpu-override-check.service`): if the loaded amdgpu isn't the patched one, it switches that boot to s2idle and plain suspend on lid close, and masks the hibernate targets, because the stock module hangs on resume from deep sleep and hibernate is only tested with the patch. Everything goes under `/run`, so it undoes itself on the next boot. A user unit then shows a critical desktop notification. Check with `journalctl -b -u amdgpu-override-check`.
+
+So a kernel update is:
+
+1. Update and reboot. You get the notification, and the system runs on s2idle.
+2. Rebuild and install the module for the new version (steps 2–8 above), then reboot. Deep sleep and suspend-then-hibernate are back.
+
+To test the fallback without an update: `sudo amdgpu-override-check --force`, then `systemctl --user start amdgpu-override-notify.service`. A reboot undoes it.
+
+Without the guard, switch to s2idle by hand before updating (`sudo sed -i 's/mem_sleep_default=deep/mem_sleep_default=s2idle/' /etc/limine-entry-tool.d/hardware-quirks.conf && sudo limine-update`), keep the lid closed for less than `HibernateDelaySec`, and switch back after rebuilding.
 
 Once the fix is in a linux-omarchy release, remove the override with `sudo bash kernel/amdgpu-module/install.sh remove`, and keep `mem_sleep_default=deep`.
 
