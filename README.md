@@ -3,7 +3,7 @@
 | File | What's in it |
 | --- | --- |
 | [hardware.md](hardware.md) | **Start here.** Distro-agnostic: kernel parameters and why, radeon vs amdgpu, sleep/hibernate results with measured power, Bluetooth, camera, fans/SMC, troubleshooting |
-| [fedora.md](fedora.md) | Next install (planned): why Fedora KDE, what carries over, install and first-boot steps, open items |
+| [fedora.md](fedora.md) | Current install (from 2026-11): why Fedora KDE, what carries over, install and first-boot steps, notes, open items |
 | [omarchy.md](omarchy.md) | Install until 2026-11: Limine/UKI config files, Omarchy-owned files, lid/logind, patched-module rebuilds, decisions |
 | [linux-mint.md](linux-mint.md) | Previous install: GRUB/initramfs-tools, recovery, Ubuntu MTRR kernel build, Cinnamon extras |
 | [sleep-test.sh](sleep-test.sh) | Measures battery drain of s2idle / deep / awake (any systemd distro) |

@@ -1,6 +1,6 @@
 # Fedora KDE on the 2015 MacBook Pro
 
-As of 2026-11-05: **planned, not installed yet.** Fedora-specific setup only; the hardware findings, kernel parameter reasons and sleep results are in [hardware.md](hardware.md).
+Installed on 2026-11-05 (Fedora 45 KDE, kernel 7.2.15). Still on stock amdgpu and s2idle; deep sleep needs the open items below. Fedora-specific setup only; the hardware findings, kernel parameter reasons and sleep results are in [hardware.md](hardware.md).
 
 ## Why Fedora KDE
 
@@ -26,11 +26,12 @@ Checked for Fedora 45:
 | Kernel parameters | `grubby --update-kernel=ALL --args="..."`; new kernels keep them |
 | Patched amdgpu module | [kernel/amdgpu-module/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module) needs changes: `.ko.xz` instead of `.ko.zst`, `dracut` instead of `limine-update`, and the source from Fedora's kernel source package. The patch touches only `si.c` and applies to 7.0 through 7.2 |
 | Kernel-update guard | the boot check and notification should work; the pacman hook becomes a `kernel-install` plugin in `/etc/kernel/install.d/` |
+| Wi-Fi | works, but not with WPA3: switch saved WPA3 profiles to WPA2 (see [Notes](#notes-from-the-install)) |
 | Wi-Fi sleep hook | as is. If it fails, look for SELinux denials: `sudo ausearch -m avc -ts recent` |
-| Bluetooth fix | as is |
+| Bluetooth fix | works as is, with SELinux enforcing (tested) |
 | Camera | facetimehd with DKMS from source |
 | Hibernate | skipped: Fedora sets up only zram swap, and a swap file on btrfs with SELinux takes extra work. Deep sleep at ~0.5 W lasts about 9 days |
-| `brcmfmac feature_disable=0x82000` | Omarchy-only; NetworkManager with wpa_supplicant didn't need it on Mint |
+| `brcmfmac feature_disable=0x82000` | not needed: NetworkManager with wpa_supplicant connects without it, as on Mint |
 | `hid_apple fnmode=2` | add by hand if F1–F12 should be function keys |
 | Fans | no daemon |
 
@@ -53,17 +54,26 @@ Checked for Fedora 45:
 # s2idle until the patched module is installed: deep sleep hangs on resume with stock amdgpu
 sudo grubby --update-kernel=ALL --args="intel_iommu=off nvme_core.default_ps_max_latency_us=0 amdgpu.ip_block_mask=0x7f mem_sleep_default=s2idle"
 sudo dnf upgrade --refresh
-sudo grub2-editenv - unset menu_auto_hide     # show the GRUB menu, to pick an older kernel if needed
 sudo reboot
 cat /proc/cmdline
+sudo bash bluetooth/bt-fix.sh
 ```
 
 s2idle draws about 22 W, so it's only for short breaks until deep sleep works.
 
+The GRUB menu stays hidden, as Fedora sets it up, so the child doesn't see it. To boot an older kernel: press Esc repeatedly right after the chime, or force a power-off during a failed boot (the menu then shows on the next start, because Fedora only marks a boot as good after about 2 minutes logged in), or `sudo grubby --set-default /boot/vmlinuz-<version>`. `sudo grub2-editenv - unset menu_auto_hide` shows it at every boot.
+
+## Notes from the install
+
+- **Wi-Fi didn't connect to a WPA2/WPA3 network.** The saved profile was WPA3-only (`key-mgmt=sae`), which the BCM43602 firmware can't do; details in [hardware.md](hardware.md#wi-fi). Fixed with `nmcli con modify <name> wifi-sec.key-mgmt wpa-psk`.
+- **Bluetooth hung on the first boot after the update** (`Reset failed (-110)`), as it does at random on this chip. `bt-fix.sh` brought it back, and its boot check handles it from then on.
+- **7.2.15 logs `amdgpu: [drm] *ERROR* Unsupported screen format RA24 little-endian (0x34324152)`** about 590 times right after boot; 7.2.11 logged none. The screen and desktop look normal. RA24 is the DRM format RGBA8888, which amdgpu turns down here; what asks for it wasn't looked into. Treated as log noise unless something looks wrong.
+
 ## Open items
 
 - [ ] Adapt the module kit and the guard for Fedora, build the patched module, switch to `mem_sleep_default=deep`, test with `sudo rtcwake -m mem -s 20`
-- [ ] Install the Wi-Fi sleep hook and run `bluetooth/bt-fix.sh`
+- [x] Run `bluetooth/bt-fix.sh`
+- [ ] Install the Wi-Fi sleep hook: `sudo install -Dm755 wifi/brcmfmac-sleep /usr/lib/systemd/system-sleep/brcmfmac`
 - [ ] Steam (RPM Fusion or Flathub)
 - [ ] Camera (optional)
 - [ ] Take good SMC/EC dumps with `smc/smc-ec-dump.sh`

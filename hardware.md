@@ -151,7 +151,7 @@ Apply the logind change with `sudo systemctl kill -s HUP systemd-logind`, which 
 
 ## Bluetooth
 
-The Apple BCM20703 chip misses its reset on about 2 of 5 boots, warm reboots included. It was seen on both distros. The log shows `hci0: command 0x0c03 tx timeout` and `BCM: Reset failed (-110)`, and there's no controller; `usb 1-8: Failed to suspend device, error -110` shows that USB autosuspend of the chip fails. Reloading `btusb` doesn't help, because the chip itself is hung. A suspend/resume, or a full shutdown and power-on, brings it back.
+The Apple BCM20703 chip misses its reset on about 2 of 5 boots, warm reboots included. It was seen on Mint, Omarchy and Fedora. The log shows `hci0: command 0x0c03 tx timeout` and `BCM: Reset failed (-110)`, and there's no controller; `usb 1-8: Failed to suspend device, error -110` shows that USB autosuspend of the chip fails. Reloading `btusb` doesn't help, because the chip itself is hung. A suspend/resume, or a full shutdown and power-on, brings it back.
 
 The fix is [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh). It needs systemd and Python 3 (`sudo bash bt-fix.sh`, undo with `undo`), and installs:
 
@@ -159,13 +159,17 @@ The fix is [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh). It needs systemd and Pyth
 - `/etc/udev/rules.d/50-apple-bt-no-autosuspend.rules`: sets `power/control=on` for `05ac:8290`.
 - `bt-check.service`: if there's no controller at boot, it resets the chip on the USB bus with a `USBDEVFS_RESET` ioctl and reloads `btusb`, up to 3 times. Check with `journalctl -u bt-check -b`. A recovery takes several seconds; the service runs in the background, so it doesn't hold up the desktop.
 
+On Fedora 45 the script works as is, with SELinux enforcing: run on a boot where the chip had hung, it brought the controller back.
+
 `usbcore.autosuspend=-1` set through `/etc/modprobe.d` does nothing when usbcore is built into the kernel, which it usually is. It would have to go on the kernel command line, and `btusb` turns autosuspend back on for its device anyway.
 
 After recovery the radio may be soft-blocked: `rfkill unblock bluetooth`. The first scan can be slow. One untested theory is that 2.4 GHz Wi-Fi on channel 1 shares the antenna.
 
 ## Wi-Fi
 
-Wi-Fi works out of the box with brcmfmac and firmware 7.35.177.61. It warns `no clm_blob available`, which may limit the available channels. Omarchy's Apple installer step adds `options brcmfmac feature_disable=0x82000` (`/etc/modprobe.d/brcmfmac.conf`), because Broadcom's in-firmware supplicant fails the WPA handshake on Apple hardware; Mint ran fine without it.
+Wi-Fi works out of the box with brcmfmac and firmware 7.35.177.61. It warns `no clm_blob available`, which may limit the available channels. Omarchy's Apple installer step adds `options brcmfmac feature_disable=0x82000` (`/etc/modprobe.d/brcmfmac.conf`), because Broadcom's in-firmware supplicant fails the WPA handshake on Apple hardware; Mint and Fedora run fine without it.
+
+**No WPA3.** The firmware can't do SAE (WPA3-Personal): `iw phy` lists no SAE support. A network profile saved as WPA3-only (NetworkManager `key-mgmt=sae`, which KDE can create for a WPA2/WPA3 network) never connects. `wpa_supplicant` logs `WPA: Failed to select authenticated key management type`, and NetworkManager gives up with `ssid-not-found`, even though the network shows up in scans. A USB dongle whose driver does SAE in software connects to the same network, which makes it look like a problem with the internal card. If the router allows WPA2 (WPA2/WPA3 transition mode), switch the profile to WPA2: `nmcli con modify <name> wifi-sec.key-mgmt wpa-psk`. A WPA3-only network can't be used with this card.
 
 **After deep sleep (S3) the chip sometimes doesn't come back.** S3 cuts the chip's power, which s2idle doesn't. Usually Wi-Fi reconnects about 2–3 s after resume. Sometimes, though, the firmware stops answering: right after resume dmesg shows `brcmf_msgbuf_query_dcmd: Timeout on response for query command`, then endless `-5` and later `-12` errors (`Failed to reserve space in commonring`, `scan error`), and there are no networks until a reboot. On Omarchy it happened on 1 of 2 S3 cycles, and the second cycle was fine.
 
