@@ -37,7 +37,6 @@ Checked for Fedora 45:
 ## Before wiping Omarchy
 
 - Copy off anything not in this repo: SMC/EC dumps from a good state (see [smc/](smc/smc-ec-dump.sh)), personal files.
-- Optional, needs the patched module: the VCE resume test from [hardware.md](hardware.md#deep-sleep-on-amdgpu) (`amdgpu.ip_block_mask=0xff` for one boot, then several S3 cycles).
 - Wiping the whole disk removes the local macOS Recovery. Internet Recovery (Cmd+Option+R) still works for the charger fix in hardware.md.
 
 ## Install
@@ -69,5 +68,4 @@ s2idle draws about 22 W, so it's only for short breaks until deep sleep works.
 - [ ] Camera (optional)
 - [ ] Take good SMC/EC dumps with `smc/smc-ec-dump.sh`
 - [ ] Once Fedora's kernel has the amdgpu fix (`journalctl -k -b | grep 'VRAM: '` shows `0x000000F400000000` with the stock module), remove the patched module and the guard
-- [ ] Optional: the VCE resume test with `amdgpu.ip_block_mask=0xff`
 - [ ] Optional: build a kernel with the MTRR patch and send a Tested-by for it upstream
