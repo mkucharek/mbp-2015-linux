@@ -1,10 +1,11 @@
 #!/bin/bash
 # Measure battery drain of a sleep mode on the MacBookPro11,5 (Omarchy port of the Mint sleep-test.sh).
 # Sleeps for N minutes, wakes by itself (RTC alarm), then reports average watts and kernel resume time.
+# Suspends through systemd (not rtcwake), so the sleep hooks run, e.g. wifi/brcmfmac-sleep.
 # Run ON BATTERY (unplugged), lid open, nothing heavy running.
 #   sudo bash sleep-test.sh s2idle 10
 #   sudo bash sleep-test.sh awake 10     # baseline: stay awake and idle for comparison
-#   sudo bash sleep-test.sh deep 10      # radeon, or amdgpu with the si_fb_restore fix (stock amdgpu hangs)
+#   sudo bash sleep-test.sh deep 10      # radeon, or amdgpu with the reset-at-load fix (stock amdgpu hangs)
 # Lid (LID0) and internal keyboard/trackpad/Bluetooth wakeups are disabled during the test,
 # because with the lid open the Mac wakes after ~2 s. Add "usbwake" to keep the USB ones.
 # The original mem_sleep mode and wakeup settings are restored afterwards.
@@ -16,9 +17,10 @@ MODE=${1:-}; MIN=${2:-10}; OPT=${3:-}
 [[ "$MODE" == deep || "$MODE" == s2idle || "$MODE" == awake ]] || { echo "Usage: sudo bash $0 s2idle|awake|deep [minutes] [usbwake]"; exit 1; }
 BAT=/sys/class/power_supply/BAT0
 [ "$(cat /sys/class/power_supply/ADP1/online 2>/dev/null || echo 0)" = 0 ] || { echo "Unplug the charger first"; exit 1; }
+# amdgpu without the reset-at-load fix leaves VRAM at 0 (Apple EFI) and hangs on resume from deep sleep
 if [ "$MODE" = deep ] && [ "$(cat /sys/module/amdgpu/initstate 2>/dev/null)" = live ] &&
-   [ "$(cat /sys/module/amdgpu/parameters/si_fb_restore 2>/dev/null || echo 0)" = 0 ]; then
-    echo "amdgpu without the si_fb_restore fix is loaded: deep sleep will hang on resume. Aborting."; exit 1
+   journalctl -k -b --no-pager | grep -qE 'amdgpu .*VRAM: [0-9]+M 0x0000000000000000'; then
+    echo "amdgpu without the reset-at-load fix is loaded (VRAM at 0): deep sleep will hang on resume. Aborting."; exit 1
 fi
 
 # Energy used = charge used (uAh) x mean voltage. Not charge x voltage at each end: the voltage sags
@@ -74,7 +76,16 @@ q0=$(charge_uah); v0=$(volt_uv); t0=$(date +%s.%N)
 if [ "$MODE" = awake ]; then
     sleep $((MIN*60))
 else
-    rtcwake -m mem -s $((MIN*60)) >/dev/null
+    # systemctl suspend returns at once; wait for the kernel to log the resume
+    exits() { journalctl -k -b --no-pager -g 'PM: suspend exit' -q 2>/dev/null | wc -l || true; }
+    n0=$(exits)
+    echo 0 > /sys/class/rtc/rtc0/wakealarm
+    echo "+$((MIN*60))" > /sys/class/rtc/rtc0/wakealarm
+    systemctl suspend
+    until [ "$(exits)" -gt "$n0" ]; do
+        sleep 1
+        [ "$(date +%s)" -lt $(( ${t0%.*} + MIN*60 + 300 )) ] || { echo "No resume found in the kernel log. Aborting."; exit 1; }
+    done
 fi
 q1=$(charge_uah); t1=$(date +%s.%N)   # charge is a coulomb counter: read it at once
 sleep 5                               # but let the battery voltage settle
