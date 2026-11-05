@@ -96,7 +96,7 @@ To test the fallback without an update: `sudo amdgpu-override-check --force`, th
 
 Without the guard, switch to s2idle by hand before updating (`sudo sed -i 's/mem_sleep_default=deep/mem_sleep_default=s2idle/' /etc/limine-entry-tool.d/hardware-quirks.conf && sudo limine-update`), keep the lid closed for less than `HibernateDelaySec`, and switch back after rebuilding.
 
-**Once the fix is in linux-omarchy** (accepted upstream on 2026-10-15; see [hardware.md](hardware.md#deep-sleep-on-amdgpu)), no new kernel series is needed. A normal update brings it in:
+**Once the fix is in linux-omarchy** (in mainline since 7.4-rc1; see [hardware.md](hardware.md#deep-sleep-on-amdgpu)), no new kernel series is needed. A normal update brings it in:
 
 1. Update and reboot. The guard falls back to s2idle and shows its notification, as for any kernel update.
 2. Check that the stock module has the fix: `journalctl -k -b | grep -E 'PCI CONFIG reset|GPU posting now|VRAM: '` must show the reset, the post and `VRAM: 2048M 0x000000F400000000`. If VRAM is at `0x0000000000000000`, the fix isn't in this kernel yet: rebuild the patched module instead.
@@ -123,7 +123,7 @@ You lose Vulkan, and the Chromium artifacts seen on radeon here are unexplained.
 - [ ] Run `bluetooth/bt-fix.sh`, then watch `journalctl -u bt-check -b` over the next few boots
 - [x] Wi-Fi sleep hook installed (2026-10-14); if Wi-Fi still dies after deep sleep, run `sudo bash wifi/wifi-reload.sh`
 - [ ] FaceTime HD camera: AUR `facetimehd-dkms` + `facetimehd-firmware`, blacklist `bdc_pci`
-- [ ] amdgpu patch upstream: applied by the maintainer on 2026-10-15, not in a public branch as of 2026-10-18. Watch [the amd-gfx thread](https://lore.kernel.org/amd-gfx/20261014192030.10611-1-qchcio@gmail.com/T/) and agd5f's `amd-staging-drm-next`. Once it's in linux-omarchy, follow the removal steps in [Patched amdgpu module](#patched-amdgpu-module)
+- [ ] amdgpu patch upstream: in mainline since 7.4-rc1 (2026-11-01), with `Cc: stable`; not in 7.3.y as of 2026-11-05. Once linux-omarchy has it (7.4, or a stable backport), follow the removal steps in [Patched amdgpu module](#patched-amdgpu-module)
 - [x] Test hibernate with the amdgpu patch: works once brcmfmac is unloaded first (2026-10-14)
 - [x] Deep-sleep cycle through systemd with the Wi-Fi hook: resumes, Wi-Fi back in ~4.5 s (2026-10-14)
 - [x] suspend-then-hibernate on lid close: works with the fixed Wi-Fi hook (2026-10-15)
