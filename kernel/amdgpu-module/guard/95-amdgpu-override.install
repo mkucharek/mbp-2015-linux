@@ -1,0 +1,8 @@
+#!/bin/sh
+# kernel-install plugin (Fedora and other kernel-install distros): after a kernel is installed,
+# warn if it has no patched amdgpu module. dnf shows the output; Discover's offline updates
+# don't, so the boot check and its notification cover that case.
+# Installed to /etc/kernel/install.d/95-amdgpu-override.install by guard/install.sh.
+# $1 = add|remove, $2 = kernel version
+[ "$1" = add ] || exit 0
+exec /usr/local/bin/amdgpu-override-check --warn "$2"

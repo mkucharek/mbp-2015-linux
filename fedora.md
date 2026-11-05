@@ -1,6 +1,6 @@
 # Fedora KDE on the 2015 MacBook Pro
 
-Installed on 2026-11-05 (Fedora 45 KDE, kernel 7.2.15). Still on stock amdgpu and s2idle; deep sleep needs the open items below. Fedora-specific setup only; the hardware findings, kernel parameter reasons and sleep results are in [hardware.md](hardware.md).
+Installed on 2026-11-05 (Fedora 45 KDE, kernel 7.2.15). Deep sleep works with the patched amdgpu module, the Wi-Fi sleep hook and the guard. Fedora-specific setup only; the hardware findings, kernel parameter reasons and sleep results are in [hardware.md](hardware.md).
 
 ## Why Fedora KDE
 
@@ -24,10 +24,10 @@ Checked for Fedora 45:
 | Fix | On Fedora |
 | --- | --- |
 | Kernel parameters | `grubby --update-kernel=ALL --args="..."`; new kernels keep them |
-| Patched amdgpu module | [kernel/amdgpu-module/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module) needs changes: `.ko.xz` instead of `.ko.zst`, `dracut` instead of `limine-update`, and the source from Fedora's kernel source package. The patch touches only `si.c` and applies to 7.0 through 7.2 |
-| Kernel-update guard | the boot check and notification should work; the pacman hook becomes a `kernel-install` plugin in `/etc/kernel/install.d/` |
+| Patched amdgpu module | [kernel/amdgpu-module/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module) with `build-fedora.sh`, see [Patched amdgpu module](#patched-amdgpu-module). The patch touches only `si.c` and applies to 7.0 through 7.2 |
+| Kernel-update guard | works; on Fedora it installs a `kernel-install` plugin instead of the pacman hook, and checks the module's taint flags instead of `srcversion` |
 | Wi-Fi | works, but not with WPA3: switch saved WPA3 profiles to WPA2 (see [Notes](#notes-from-the-install)) |
-| Wi-Fi sleep hook | as is. If it fails, look for SELinux denials: `sudo ausearch -m avc -ts recent` |
+| Wi-Fi sleep hook | works as is |
 | Bluetooth fix | works as is, with SELinux enforcing (tested) |
 | Camera | facetimehd with DKMS from source |
 | Hibernate | skipped: Fedora sets up only zram swap, and a swap file on btrfs with SELinux takes extra work. Deep sleep at ~0.5 W lasts about 9 days |
@@ -63,6 +63,46 @@ s2idle draws about 22 W, so it's only for short breaks until deep sleep works.
 
 The GRUB menu stays hidden, as Fedora sets it up, so the child doesn't see it. To boot an older kernel: press Esc repeatedly right after the chime, or force a power-off during a failed boot (the menu then shows on the next start, because Fedora only marks a boot as good after about 2 minutes logged in), or `sudo grubby --set-default /boot/vmlinuz-<version>`. `sudo grub2-editenv - unset menu_auto_hide` shows it at every boot.
 
+## Patched amdgpu module
+
+The patch and the reason for it are in [hardware.md](hardware.md#deep-sleep-on-amdgpu). [kernel/amdgpu-module/build-fedora.sh](kernel/amdgpu-module/build-fedora.sh) downloads Fedora's kernel source package for the kernel (`dnf download --source`, about 160 MB), unpacks the kernel.org tarball, applies Fedora's `patch-<x.y>-redhat.patch` as the kernel.spec does, then the fix, and builds only `amdgpu.ko`. It compresses it as `.ko.xz` with the kernel's own settings (CRC32, 1 MiB dictionary). The source tree stays in `~/src/fedora-kernel/linux-<version>` (about 1.8 GB, plus the build); older trees can be deleted. Fedora's patch doesn't touch amdgpu, so the module source is the kernel.org one.
+
+Fedora doesn't put amdgpu in the initramfs on this Mac (`lsinitrd | grep amdgpu` is empty), so it loads from `/usr/lib/modules/<version>/updates/`. `install.sh` rebuilds the initramfs with dracut anyway, in case that changes.
+
+Once, as the admin user:
+
+```bash
+sudo dnf install kernel-devel-$(uname -r) gcc make flex bison elfutils-libelf-devel openssl-devel dwarves
+bash kernel/amdgpu-module/build-fedora.sh       # ~7 min
+sudo bash kernel/amdgpu-module/install.sh
+sudo reboot
+journalctl -k -b | grep -E 'PCI CONFIG reset|GPU posting|VRAM:'   # must show VRAM at 0x000000F400000000
+sudo install -Dm755 wifi/brcmfmac-sleep /usr/lib/systemd/system-sleep/brcmfmac
+sudo bash kernel/amdgpu-module/guard/install.sh
+sudo grubby --update-kernel=ALL --remove-args=mem_sleep_default=s2idle --args=mem_sleep_default=deep
+sudo reboot
+cat /sys/power/mem_sleep                         # s2idle [deep]
+echo +30 | sudo tee /sys/class/rtc/rtc0/wakealarm && systemctl suspend   # wakes after 30 s; Wi-Fi back in a few s
+```
+
+Tested on 7.2.15-300.fc45: the build takes about 6 minutes, the module resets the GPU at load (VRAM at `0x000000F400000000`), and an S3 cycle through `systemctl suspend` works, with Wi-Fi reconnected about 5 s after resume.
+
+The guard tells the modules apart differently than on Arch: Fedora builds without `CONFIG_MODULE_SRCVERSION_ALL`, so neither module has a `srcversion`. The patched one shows `O` (out-of-tree) in `/sys/module/amdgpu/taint`, and the stock one doesn't.
+
+`kernel-devel` is an install-only package like `kernel`, so once installed, `dnf upgrade` brings the matching one with each new kernel.
+
+**Kernel updates.** The module only matches the kernel it was built for. Two ways:
+
+- **With `sudo dnf upgrade` (best):** the guard's `kernel-install` plugin prints a warning naming the new kernel. Build for it before rebooting, and deep sleep never goes away:
+  ```bash
+  KVER=<new version> bash kernel/amdgpu-module/build-fedora.sh
+  sudo KVER=<new version> bash kernel/amdgpu-module/install.sh
+  sudo reboot
+  ```
+- **With Discover** (installs on restart, no warning shown): the first boot on the new kernel has the stock module. The guard switches that boot to s2idle, masks hibernate and shows a critical notification. Run `build-fedora.sh` and `install.sh` without `KVER` and reboot.
+
+**Once Fedora's kernel has the fix** (7.4, or a 7.2.y/7.3.y stable backport): after the update the guard's notification shows up as usual. Check `journalctl -k -b | grep 'VRAM: '`: with the stock module, `0x000000F400000000` means the fix is in. Then `sudo bash kernel/amdgpu-module/install.sh remove` and `sudo bash kernel/amdgpu-module/guard/install.sh remove`, reboot, and delete `~/src/fedora-kernel`.
+
 ## Notes from the install
 
 - **Wi-Fi didn't connect to a WPA2/WPA3 network.** The saved profile was WPA3-only (`key-mgmt=sae`), which the BCM43602 firmware can't do; details in [hardware.md](hardware.md#wi-fi). Fixed with `nmcli con modify <name> wifi-sec.key-mgmt wpa-psk`.
@@ -71,11 +111,12 @@ The GRUB menu stays hidden, as Fedora sets it up, so the child doesn't see it. T
 
 ## Open items
 
-- [ ] Adapt the module kit and the guard for Fedora, build the patched module, switch to `mem_sleep_default=deep`, test with `sudo rtcwake -m mem -s 20`
+- [x] Adapt the module kit and the guard for Fedora
+- [x] Build and install the patched module, the Wi-Fi sleep hook and the guard, switch to `mem_sleep_default=deep` (see [Patched amdgpu module](#patched-amdgpu-module))
+- [ ] Lid-close test through KDE (PowerDevil), and a sleep-test.sh power measurement
 - [x] Run `bluetooth/bt-fix.sh`
-- [ ] Install the Wi-Fi sleep hook: `sudo install -Dm755 wifi/brcmfmac-sleep /usr/lib/systemd/system-sleep/brcmfmac`
 - [ ] Steam (RPM Fusion or Flathub)
 - [ ] Camera (optional)
 - [ ] Take good SMC/EC dumps with `smc/smc-ec-dump.sh`
-- [ ] Once Fedora's kernel has the amdgpu fix (`journalctl -k -b | grep 'VRAM: '` shows `0x000000F400000000` with the stock module), remove the patched module and the guard
+- [ ] Once Fedora's kernel has the amdgpu fix, remove the patched module and the guard (see [Patched amdgpu module](#patched-amdgpu-module))
 - [ ] Optional: build a kernel with the MTRR patch and send a Tested-by for it upstream
