@@ -10,6 +10,7 @@
 | [bluetooth/bt-fix.sh](bluetooth/bt-fix.sh) | Fixes the Bluetooth chip hanging at boot (any systemd distro) |
 | [wifi/](https://github.com/mkucharek/mbp-2015-linux/tree/main/wifi) | Sleep hook that unloads Wi-Fi before deep sleep and hibernate (needed for hibernate); recovery script for when Wi-Fi dies anyway |
 | [kernel/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel) | amdgpu patch for deep sleep + module build/install scripts + a guard that falls back to s2idle and notifies you after a kernel update; MTRR resume patch (fixes the slow wake from deep sleep) + Ubuntu kernel build script |
+| [backup/snapper-fedora.sh](backup/snapper-fedora.sh) | Fedora only: snapper snapshots of the system around every dnf/Discover update, and hourly snapshots of /home |
 | [smc/smc-ec-dump.sh](smc/smc-ec-dump.sh) | Dumps all SMC keys and the EC RAM, to compare good and bad states (charger power-on problem) |
 | [fans/](https://github.com/mkucharek/mbp-2015-linux/tree/main/fans) | Smoothed fan daemon: a fallback only, since the SMC's own fan control was fine on Omarchy |
 

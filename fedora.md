@@ -103,6 +103,42 @@ The guard tells the modules apart differently than on Arch: Fedora builds withou
 
 **Once Fedora's kernel has the fix** (7.4, or a 7.2.y/7.3.y stable backport): after the update the guard's notification shows up as usual. Check `journalctl -k -b | grep 'VRAM: '`: with the stock module, `0x000000F400000000` means the fix is in. Then `sudo bash kernel/amdgpu-module/install.sh remove` and `sudo bash kernel/amdgpu-module/guard/install.sh remove`, reboot, and delete `~/src/fedora-kernel`.
 
+## Snapshots
+
+[backup/snapper-fedora.sh](backup/snapper-fedora.sh) (`sudo bash backup/snapper-fedora.sh`) sets up snapper, roughly what Omarchy does, without the boot menu entries:
+
+- **System (`/`, subvolume `root`):** a pre/post snapshot pair around every package transaction, from `dnf` and from Discover, through the libdnf5 actions plugin (`/etc/dnf/libdnf5-plugins/actions.d/snapper.actions`). PackageKit's backend uses libdnf5 and loads its plugins, so Discover gets snapshots too: tested on 2026-11-05, installing an app from Discover created a pair described `Discover/PackageKit`. Updates installed on restart go through the same backend, but aren't confirmed yet. Plus one snapshot a day. Keeps 10 update pairs and 7 days.
+- **Home (`/home`, subvolume `home`):** hourly; keeps 24 hourly, 7 daily and 2 weekly snapshots. A deleted file stays in the snapshots until they expire, so uninstalling a large game frees its space only after 2 weeks.
+- When the configs are created, SELinux logs a few `denied { reload } ... scontext=snapperd_t tcontext=init_t` messages. The configs and timers work anyway.
+- `btrfs-assistant` is the GUI (Snapper tab). The admin user can list snapshots and open them without sudo; the other accounts' files keep their own permissions.
+- Not covered: `/boot` (ext4, so kernels aren't rolled back with the system), and a dead or lost disk: snapshots are on the same SSD. For that, back up `/home` to another disk (Déjà Dup or Vorta are in Fedora's repos).
+
+Grub-btrfs, which adds snapshot entries to the boot menu, isn't in Fedora's repositories and doesn't fit Fedora's BLS boot entries well, so a broken boot is handled by an older kernel first, and the live USB second.
+
+**Restoring**
+
+The system and `/home` are separate subvolumes, so rolling back the system never touches personal files or game saves.
+
+- **A file in `/home`:** btrfs-assistant → Snapper → Browse/Restore. Or open `/home/.snapshots/<number>/snapshot/<user>/…` in the file manager (read-only) and copy the file out.
+- **An update broke something, the Mac still boots:** btrfs-assistant → Snapper → pick the `pre` snapshot from before the update → Restore, then reboot. Or undo just that transaction's changes:
+  ```bash
+  snapper -c root list                      # find the pre/post pair, e.g. 42 and 43
+  sudo snapper -c root undochange 42..43
+  sudo reboot
+  ```
+- **It doesn't boot:** first pick an older kernel (Esc at boot): most broken boots are a kernel. If nothing boots, start the live USB, and in a terminal:
+  ```bash
+  sudo mount /dev/nvme0n1p3 /mnt                       # the btrfs top level: root, home
+  ls /mnt/root/.snapshots/; cat /mnt/root/.snapshots/42/info.xml   # find the snapshot to go back to
+  sudo mv /mnt/root /mnt/root.broken
+  sudo btrfs subvolume snapshot /mnt/root.broken/.snapshots/42/snapshot /mnt/root
+  # .snapshots is its own subvolume, so it isn't inside the snapshot: move it over
+  sudo rmdir /mnt/root/.snapshots && sudo mv /mnt/root.broken/.snapshots /mnt/root/
+  sudo umount /mnt && sudo reboot
+  ```
+  Once everything works, delete the old one: `sudo mount /dev/nvme0n1p3 /mnt && sudo btrfs subvolume delete /mnt/root.broken`.
+- **After rolling back past a kernel update**, the newest kernel in the boot menu has no modules in the restored system and won't boot. Pick the previous one; the next `dnf upgrade` installs it again. The patched amdgpu module lives in the system, so it's rolled back together with the kernel modules.
+
 ## Notes from the install
 
 - **Wi-Fi didn't connect to a WPA2/WPA3 network.** The saved profile was WPA3-only (`key-mgmt=sae`), which the BCM43602 firmware can't do; details in [hardware.md](hardware.md#wi-fi). Fixed with `nmcli con modify <name> wifi-sec.key-mgmt wpa-psk`.
@@ -116,6 +152,8 @@ The guard tells the modules apart differently than on Arch: Fedora builds withou
 - [ ] Lid-close test through KDE (PowerDevil), and a sleep-test.sh power measurement
 - [x] Run `bluetooth/bt-fix.sh`
 - [ ] Steam (RPM Fusion or Flathub)
+- [x] Snapshots: run `backup/snapper-fedora.sh`, check that a Discover install creates a pre/post pair
+- [ ] Snapshots: confirm an update installed on restart creates a pair (`snapper -c root list`), try a restore once
 - [ ] Camera (optional)
 - [ ] Take good SMC/EC dumps with `smc/smc-ec-dump.sh`
 - [ ] Once Fedora's kernel has the amdgpu fix, remove the patched module and the guard (see [Patched amdgpu module](#patched-amdgpu-module))
