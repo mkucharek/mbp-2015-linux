@@ -10,7 +10,7 @@ As of 2026-10-14. Omarchy-specific setup only; the hardware findings, kernel par
 | --- | --- | --- |
 | GPU driver | `radeon.si_support=0 amdgpu.si_support=1` | `/etc/default/limine` |
 | amdgpu video blocks off | `amdgpu.ip_block_mask=0x7f` | `/etc/default/limine` |
-| amdgpu deep-sleep fix | patched `amdgpu.ko` (reset at load) | `/usr/lib/modules/7.2.5-3-omarchy/updates/`; built for that kernel only, see [Patched amdgpu module](#patched-amdgpu-module) |
+| amdgpu deep-sleep fix | patched `amdgpu.ko` (reset at load) | `/usr/lib/modules/<kernel version>/updates/`; rebuilt for every kernel update, see [Patched amdgpu module](#patched-amdgpu-module) |
 | Kernel-update guard | pacman hook + boot check + notification | [kernel/amdgpu-module/guard/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module/guard) |
 | IOMMU off, NVMe APST off | `intel_iommu=off nvme_core.default_ps_max_latency_us=0` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
 | Sleep mode | `mem_sleep_default=deep` | `/etc/limine-entry-tool.d/hardware-quirks.conf` |
@@ -103,7 +103,7 @@ Without the guard, switch to s2idle by hand before updating (`sudo sed -i 's/mem
 3. Remove the patched module: `sudo bash kernel/amdgpu-module/install.sh remove`.
 4. Remove the guard: `sudo bash kernel/amdgpu-module/guard/install.sh remove`.
 5. Reboot. `mem_sleep_default=deep` is still in the boot options, and the guard's fallback was only under `/run`.
-6. Test with `sudo rtcwake -m mem -s 20` a few times, then lid close and suspend-then-hibernate.
+6. Test a few times with `echo +30 | sudo tee /sys/class/rtc/rtc0/wakealarm && systemctl suspend` (not `rtcwake`, which skips the Wi-Fi sleep hook), then lid close and suspend-then-hibernate.
 
 Keep `amdgpu.ip_block_mask=0x7f` and the Wi-Fi sleep hook: they fix other problems.
 
@@ -112,7 +112,7 @@ Keep `amdgpu.ip_block_mask=0x7f` and the Wi-Fi sleep hook: they fix other proble
 ```bash
 sudo sed -i 's/radeon.si_support=0 amdgpu.si_support=1 amdgpu.ip_block_mask=0x7f/radeon.si_support=1 amdgpu.si_support=0/' /etc/default/limine
 sudo sed -i '/mem_sleep_default=s2idle/d' /etc/limine-entry-tool.d/hardware-quirks.conf
-sudo limine-update   # then reboot and test: sudo rtcwake -m mem -s 20
+sudo limine-update   # then reboot and test: echo +30 | sudo tee /sys/class/rtc/rtc0/wakealarm && systemctl suspend
 ```
 
 You lose Vulkan, and the Chromium artifacts seen on radeon here are unexplained. Waking takes about 20 s unless you build linux-omarchy with the MTRR patch (not done; [kernel/build-kernel-ubuntu.sh](kernel/build-kernel-ubuntu.sh) is Ubuntu-only, but [kernel/mtrr-resume.patch](kernel/mtrr-resume.patch) can go into a linux-omarchy PKGBUILD).
