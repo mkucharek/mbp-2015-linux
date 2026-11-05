@@ -1,6 +1,6 @@
 # Omarchy on the 2015 MacBook Pro
 
-As of 2026-10-14. Omarchy-specific setup only; the hardware findings, kernel parameter reasons and sleep results are in [hardware.md](hardware.md).
+As of 2026-11-05 (being replaced by Fedora KDE, see [fedora.md](fedora.md)). Omarchy-specific setup only; the hardware findings, kernel parameter reasons and sleep results are in [hardware.md](hardware.md).
 
 **Install:** Omarchy 4.0.4, linux-omarchy 7.2.5, Limine 12.8 booting a UKI, LUKS + btrfs (`subvol=@`), Hyprland on Wayland, Mesa 26.2.
 
@@ -71,7 +71,7 @@ The patch and the reason for it are in [hardware.md](hardware.md#deep-sleep-on-a
 
 1. Install the headers: `sudo pacman -S linux-omarchy-headers`.
 2. Download the kernel.org tarball for the version in `pacman -Q linux-omarchy` (for example `linux-7.2.5.tar.xz`), and unpack it.
-3. Download the linux-omarchy patches from [omacom-io/omarchy-pkgs](https://github.com/omacom-io/omarchy-pkgs) (`pkgbuilds/linux-omarchy/`), from the commit that matches the installed package release.
+3. Download the linux-omarchy patches from [omacom-io/omarchy-pkgs](https://github.com/omacom-io/omarchy-pkgs) (`pkgbuilds/linux-omarchy/`), from the commit that matches the installed package release. To find it, run `git log -- pkgbuilds/linux-omarchy/PKGBUILD` in a clone and check `pkgver`/`pkgrel` in each candidate.
 4. Apply them in their numbered order: `for p in /path/to/patches/*.patch; do patch -Np1 < "$p"; done`.
 5. Apply the fix: `patch -p1 < kernel/amdgpu-si-reset-on-init.patch`.
 6. Build the module: `bash kernel/amdgpu-module/build.sh /path/to/linux-7.2.5`. This takes about 7 minutes.
