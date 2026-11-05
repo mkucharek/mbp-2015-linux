@@ -71,7 +71,9 @@ After=bluetooth.service
 Wants=bluetooth.service
 
 [Service]
-Type=oneshot
+# exec, not oneshot: a oneshot unit wanted by multi-user.target holds up boot (and the desktop)
+# for the 5-10 s a recovery takes
+Type=exec
 ExecStart=/usr/local/sbin/bt-check
 
 [Install]
