@@ -166,6 +166,33 @@ echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode    # now, without a re
 - **Vulkan:** RADV sees the R9 M370X (`RADV VERDE`), and the Intel GPU (hasvk) shows up as a second Vulkan device. For a Vulkan game, check on first launch that it runs on the AMD GPU (e.g. with MangoHud). Minecraft Java uses OpenGL, which runs on the AMD GPU that drives the panel.
 - **No hardware video decoding.** `vainfo` fails on both GPUs: on the AMD one because `amdgpu.ip_block_mask=0x7f` turns UVD off (`radeonsi_drv_video.so init failed`), and on the Intel one because libva picks `iHD`, which is for Broadwell and newer. Haswell would need `libva-intel-driver` (i965, RPM Fusion), plus pointing apps at `/dev/dri/renderD129`. Video plays fine with CPU decoding, so it's left as is for now. Options and a test plan, including YouTube: [hardware.md](hardware.md#hardware-video-decoding-not-set-up-yet). The freeworld VA drivers start to matter if the mask goes away.
 
+**Apps for the child's account**, installed by the admin (Fedora packages for the KDE apps and Tux Paint, Flathub system-wide for the rest, so every account sees them):
+
+```bash
+sudo dnf install ktouch.x86_64 marble.x86_64 kgeography.x86_64 gcompris-qt.x86_64 tuxpaint.x86_64
+sudo flatpak install --or-update --system flathub \
+    org.turbowarp.TurboWarp org.pencil2d.Pencil2D net.blockbench.Blockbench org.stellarium.Stellarium \
+    org.supertuxproject.SuperTux net.sourceforge.ExtremeTuxRacer net.supertuxkart.SuperTuxKart \
+    org.openttd.OpenTTD com.github.Anuken.Mindustry
+```
+
+| App | What for | Flathub age rating |
+| --- | --- | --- |
+| TurboWarp | Scratch 3 editor, offline, no community access | 4 |
+| KTouch | touch typing; pick the course matching the keyboard layout in use | 3 |
+| GCompris | ~190 activities (maths, logic, science, chess), Polish; set the difficulty filter to 3–6 stars | 3 |
+| Tux Paint | drawing for kids | 3 |
+| Pencil2D | frame-by-frame 2D animation | 3 |
+| Blockbench | Minecraft-style block models and textures, resource packs | 3 |
+| KGeography, Marble | geography quizzes, virtual globe | 3 |
+| Stellarium | planetarium, tonight's sky for any location | 13 (social: moderate) |
+| SuperTux, Extreme Tux Racer | platformer, downhill racing; offline | 3 |
+| SuperTuxKart | kart racing; split-screen on one laptop | 13: online races with unmoderated chat |
+| OpenTTD | transport-building sim | 13: public servers with chat |
+| Mindustry | factory building plus tower defence | 13: public servers with chat, "intense" (top-down, abstract) violence |
+
+The 13+ ratings come from online play, which nothing on the laptop limits: they're fine offline, and the online parts are down to house rules (or blocking game servers at the router). `marble` also exists as i686, so name the arch, as with gamemode. `--or-update` keeps a re-run from failing on apps already installed.
+
 **Parental controls (malcontent)** for the child's account (PEGI 7; `<child>` below is its username):
 
 ```bash
