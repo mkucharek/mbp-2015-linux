@@ -65,6 +65,25 @@ amdgpu splits this GPU into 9 blocks, numbered 0–8 (list them with `journalctl
 - **Video playback:** decoded on the CPU, which is fine on this quad-core i7.
 - **OBS recording / Steam Remote Play:** encoding falls back to the CPU and costs FPS.
 
+### Hardware video decoding (not set up yet)
+
+Checked on Fedora on 2026-11-06 with the mask on: `vainfo` fails on both GPUs. On the AMD one, `radeonsi_drv_video.so init failed`, because UVD is masked. On the Intel one, libva picks `iHD`, which is only for Broadwell and newer; Haswell needs the i965 driver (`libva-intel-driver`, in RPM Fusion on Fedora). Video plays fine with CPU decoding.
+
+**What the hardware can decode.** Both UVD 3.1 (AMD) and Haswell (Intel) decode H.264, MPEG-2 and VC-1; neither does HEVC, VP9 or AV1. YouTube normally sends VP9 or AV1, so even with VA-API working it decodes on the CPU. A browser extension such as enhanced-h264ify makes YouTube send H.264 instead, up to 1080p. H.264 looks a bit softer than VP9 at the same resolution, which shows on the 2880×1800 panel. On the CPU, 1080p VP9 is easy, but the 1440p/4K that YouTube may pick for this panel can drop frames and spin the fans.
+
+Two ways to get it, neither tried yet:
+
+1. **AMD GPU: drop `amdgpu.ip_block_mask=0x7f`** (needs the patched module, or a kernel with the fix). The decode block is then on the GPU that drives the panel, so the browser's normal VA-API path should work, and VCE encoding comes back for OBS and Steam Remote Play. Deep sleep already worked 8 of 8 times without the mask (see [Deep sleep on amdgpu](#deep-sleep-on-amdgpu)). Still to test:
+   - `journalctl -k -b | grep 'disabled ip block'` empty, `vainfo --display drm --device /dev/dri/renderD128` lists H.264 profiles
+   - an H.264 decode with `ffmpeg -hwaccel vaapi`, CPU use compared with software decoding
+   - about 10 S3 cycles, one during a decode, and a lid close; check the log for `uvd`, `vce`, `ring`, `-110`, and that decoding still works afterwards
+   - `sleep-test.sh deep 10` and `awake 10`, compared with 0.46 W and ~30 W with the mask
+
+   **Blocker: the kernel-update guard.** Its fallback for the stock module is s2idle, and stock amdgpu without the mask hangs on resume from s2idle (`UVD Firmware validate fail`, see [Sleep & suspend](#sleep--suspend)). Before dropping the mask for good, the guard needs a different fallback when UVD is on (`/sys/module/amdgpu/parameters/ip_block_mask` not `127`): block sleep entirely for that boot and notify. Once the distro kernel has the amdgpu fix and the guard is removed, this no longer matters.
+2. **Intel GPU: keep the mask**, install the i965 driver, and point the browser at the Intel render node (Firefox: `MOZ_DRM_DEVICE=/dev/dri/renderD129`). No kernel or sleep changes, and quick to check with `vainfo` and an ffmpeg decode. Unknowns: whether frames decoded on Intel display smoothly through the AMD GPU, and how much power waking the Intel GPU (normally in D3hot) costs.
+
+Plan when picking this up: try the Intel way first (quick, doesn't touch sleep); if the browser doesn't use it cleanly, do the AMD test.
+
 ### Battery idea (untested, risky)
 
 Boot with the Intel GPU driving the panel and the AMD GPU powered off:

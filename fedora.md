@@ -32,7 +32,7 @@ Checked for Fedora 45:
 | Camera | facetimehd with DKMS from source |
 | Hibernate | skipped: Fedora sets up only zram swap, and a swap file on btrfs with SELinux takes extra work. Deep sleep at ~0.5 W lasts about 9 days |
 | `brcmfmac feature_disable=0x82000` | not needed: NetworkManager with wpa_supplicant connects without it, as on Mint |
-| `hid_apple fnmode=2` | add by hand if F1–F12 should be function keys |
+| `hid_apple fnmode=2` | set (see [Apps, codecs and parental controls](#apps-codecs-and-parental-controls)) |
 | Fans | no daemon |
 
 ## Before wiping Omarchy
@@ -139,6 +139,70 @@ The system and `/home` are separate subvolumes, so rolling back the system never
   Once everything works, delete the old one: `sudo mount /dev/nvme0n1p3 /mnt && sudo btrfs subvolume delete /mnt/root.broken`.
 - **After rolling back past a kernel update**, the newest kernel in the boot menu has no modules in the restored system and won't boot. Pick the previous one; the next `dnf upgrade` installs it again. The patched amdgpu module lives in the system, so it's rolled back together with the kernel modules.
 
+## Apps, codecs and parental controls
+
+Set up on 2026-11-06, as the admin user:
+
+```bash
+# Flathub, for most apps in Discover (only Fedora's own remote is there by default)
+sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+# Full ffmpeg from RPM Fusion (H.264/HEVC and more), and VA-API drivers with those codecs
+sudo dnf swap ffmpeg-free ffmpeg --allowerasing
+sudo dnf install mesa-va-drivers-freeworld mesa-va-drivers-freeworld.i686
+
+# Steam from RPM Fusion nonfree; gamemode for both 64- and 32-bit games
+sudo dnf install steam gamemode.x86_64 gamemode.i686
+
+# F1–F12 as function keys, Fn+F-key for brightness/volume/media
+echo 'options hid_apple fnmode=2' | sudo tee /etc/modprobe.d/hid_apple.conf
+echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode    # now, without a reboot
+```
+
+- **gamemode:** `dnf install steam gamemode gamemode.i686` installed only the i686 package, so name the arches. Use per game with the Steam launch option `gamemoderun %command%`; worth it only for a game that stutters.
+- **Steam on Vulkan:** RADV sees the R9 M370X (`RADV VERDE`), and the Intel GPU (hasvk) shows up as a second Vulkan device. On a game's first launch, check it runs on the AMD GPU (e.g. with MangoHud).
+- **No hardware video decoding.** `vainfo` fails on both GPUs: on the AMD one because `amdgpu.ip_block_mask=0x7f` turns UVD off (`radeonsi_drv_video.so init failed`), and on the Intel one because libva picks `iHD`, which is for Broadwell and newer. Haswell would need `libva-intel-driver` (i965, RPM Fusion), plus pointing apps at `/dev/dri/renderD129`. Video plays fine with CPU decoding, so it's left as is for now. Options and a test plan, including YouTube: [hardware.md](hardware.md#hardware-video-decoding-not-set-up-yet). The freeworld VA drivers start to matter if the mask goes away.
+
+**Parental controls (malcontent)** for the child's account (PEGI 7; `<child>` below is its username):
+
+```bash
+sudo dnf install malcontent malcontent-tools malcontent-control
+sudo malcontent-client set-app-filter -n \
+    --disallow-user-installation --disallow-system-installation \
+    <child> \
+    violence-cartoon=intense violence-fantasy=moderate violence-realistic=mild \
+    violence-bloodshed=none violence-sexual=none \
+    drugs-alcohol=none drugs-narcotics=none drugs-tobacco=none \
+    sex-nudity=none sex-themes=none \
+    language-profanity=none language-humor=mild language-discrimination=none \
+    money-advertising=mild money-gambling=mild money-purchasing=none \
+    social-chat=mild social-audio=none social-contacts=none social-info=mild social-location=none \
+    sex-homosexuality=none sex-prostitution=none sex-adultery=none sex-appearance=none \
+    violence-worship=none violence-desecration=none violence-slavery=none
+malcontent-client get-app-filter <child>
+```
+
+- The OARS values are what AppStream gives for age 7 (`AppStream.ContentRating.attribute_to_csm_age`), the same as picking PEGI 7 in the Parental Controls app (`malcontent-control`). The app is the easier way to change it later, e.g. to raise the age limit.
+- In practice: no apps installed from the child's account, nothing above PEGI 7, no in-app purchases (`money-purchasing=none`), no voice chat apps (`social-audio=none`), moderated text chat only.
+- New apps go in from the admin account; system-wide Flatpaks show up in the child's account too.
+- Limits of malcontent on KDE: it only filters Flatpak installs. Apps already installed aren't hidden (only GNOME Shell does that), and Steam games aren't covered: use Steam Family for those. malcontent 0.14 also has a web filter (`set-web-filter`), not set up.
+
+**Web filtering.** The home network uses Cloudflare for Families (1.1.1.3) through the router (10.0.4.1). Checked on 2026-11-06: adult domains resolve to `0.0.0.0`, and Google and Bing are forced to SafeSearch (`forcesafesearch.google.com`, `strict.bing.com`), the same answers 1.1.1.3 gives. Gaps found:
+
+- **DNS over HTTPS skips it.** Queries to Cloudflare's and Google's public DoH resolvers return real addresses. Firefox can switch to DoH from its settings. Its canary check doesn't catch this network (`use-application-dns.net` resolves).
+- **YouTube isn't restricted.** Cloudflare for Families leaves it alone.
+- **Plain DNS to another server** (e.g. `dig @8.8.8.8`) also isn't filtered. On this laptop that needs software the child can't install, or a change to the system Wi-Fi profile, which needs the admin password. Blocking outbound 53/853 except to the router would cover every device on the network, but not DoH.
+
+[family/web-filter.sh](family/web-filter.sh) closes the first two on this laptop: a Firefox policy (`/etc/firefox/policies/policies.json`) that turns DoH off and locks it, and `/etc/hosts` entries that send the YouTube domains to `restrict.youtube.com`. That forces Restricted Mode for every account on the laptop, the admin one too.
+
+```bash
+sudo bash family/web-filter.sh            # strict; "moderate" for the milder level, "remove" to undo
+```
+
+Restart Firefox, then check `about:policies` and https://www.youtube.com/check_content_restrictions.
+
+DNS filtering works on whole domains only: chat inside games and comments on allowed sites aren't covered.
+
 ## Notes from the install
 
 - **Wi-Fi didn't connect to a WPA2/WPA3 network.** The saved profile was WPA3-only (`key-mgmt=sae`), which the BCM43602 firmware can't do; details in [hardware.md](hardware.md#wi-fi). Fixed with `nmcli con modify <name> wifi-sec.key-mgmt wpa-psk`.
@@ -151,7 +215,10 @@ The system and `/home` are separate subvolumes, so rolling back the system never
 - [x] Build and install the patched module, the Wi-Fi sleep hook and the guard, switch to `mem_sleep_default=deep` (see [Patched amdgpu module](#patched-amdgpu-module))
 - [ ] Lid-close test through KDE (PowerDevil), and a sleep-test.sh power measurement
 - [x] Run `bluetooth/bt-fix.sh`
-- [ ] Steam (RPM Fusion or Flathub)
+- [x] Steam (RPM Fusion), gamemode, Flathub, full ffmpeg, malcontent, F-keys (see [Apps, codecs and parental controls](#apps-codecs-and-parental-controls))
+- [ ] Steam Family for the child's account
+- [ ] Back up `/home` to another disk (snapshots are on the same SSD)
+- [ ] Optional: hardware video decoding, Intel i965 first, then dropping the mask (see [hardware.md](hardware.md#hardware-video-decoding-not-set-up-yet))
 - [x] Snapshots: run `backup/snapper-fedora.sh`, check that a Discover install creates a pre/post pair
 - [ ] Snapshots: confirm an update installed on restart creates a pair (`snapper -c root list`), try a restore once
 - [ ] Camera (optional)
