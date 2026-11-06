@@ -195,6 +195,14 @@ malcontent-client get-app-filter <child>
 
 [family/web-filter.sh](family/web-filter.sh) closes the first two on this laptop: a Firefox policy (`/etc/firefox/policies/policies.json`) that turns DoH off and locks it, and `/etc/hosts` entries that send the YouTube domains to `restrict.youtube.com`. That forces Restricted Mode for every account on the laptop, the admin one too.
 
+The same policy force-installs **uBlock Origin** in every Firefox profile, private windows included. Nobody can remove or disable it from Firefox, though the toolbar popup can still turn it off for one site. Its filter lists are set through the policy (`3rdparty` → `toOverwrite.filterLists`, reapplied at each Firefox start): uBO's defaults, plus lists recommended at https://majkiit.github.io/polish-ads-filter/:
+
+- Oficjalne Polskie Filtry (built into uBO as `POL-0`): Polish ads
+- CERT.PL's warning list (`POL-3`) and KAD - STOP Przekrętom: scam, phishing and fake-shop domains
+- Cookie banners: EasyList/uBO Cookie Notices (the page's advice for uBO) and Polskie Filtry RODO-Ciasteczkowe
+
+Left out to keep breakage low: the Polish social-widget and annoyance lists. Add their URLs to `filterLists` if wanted.
+
 ```bash
 sudo bash family/web-filter.sh            # strict; "moderate" for the milder level, "remove" to undo
 ```
