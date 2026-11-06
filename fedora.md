@@ -149,18 +149,21 @@ sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flat
 
 # Full ffmpeg from RPM Fusion (H.264/HEVC and more), and VA-API drivers with those codecs
 sudo dnf swap ffmpeg-free ffmpeg --allowerasing
-sudo dnf install mesa-va-drivers-freeworld mesa-va-drivers-freeworld.i686
+sudo dnf install mesa-va-drivers-freeworld
 
-# Steam from RPM Fusion nonfree; gamemode for both 64- and 32-bit games
-sudo dnf install steam gamemode.x86_64 gamemode.i686
+# Minecraft: Prism Launcher, system-wide so every account sees it; gamemode for games that use it
+sudo flatpak install --system flathub org.prismlauncher.PrismLauncher
+sudo dnf install gamemode.x86_64
 
 # F1–F12 as function keys, Fn+F-key for brightness/volume/media
 echo 'options hid_apple fnmode=2' | sudo tee /etc/modprobe.d/hid_apple.conf
 echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode    # now, without a reboot
 ```
 
-- **gamemode:** `dnf install steam gamemode gamemode.i686` installed only the i686 package, so name the arches. Use per game with the Steam launch option `gamemoderun %command%`; worth it only for a game that stutters.
-- **Steam on Vulkan:** RADV sees the R9 M370X (`RADV VERDE`), and the Intel GPU (hasvk) shows up as a second Vulkan device. On a game's first launch, check it runs on the AMD GPU (e.g. with MangoHud).
+- **Prism Launcher** rather than the "Minecraft Launcher" Flatpak (`com.mojang.Minecraft`): Prism is open source and verified on Flathub by its developers, while the other one is Mojang's proprietary launcher repackaged by someone else and not verified. Prism downloads the right Java by itself. Minecraft Java needs a Microsoft account that owns it; Bedrock doesn't run on Linux.
+- **Ratings vs. malcontent:** both launchers are rated ESRB Teen (13+) on Flathub, mainly for "uncontrolled chat functionality between users". The PEGI 7 filter would refuse them if installed from the child's account; installed system-wide by the admin, they run, since malcontent on KDE doesn't block launching. Multiplayer, chat and Realms are controlled in the child's Microsoft account (family group, Xbox privacy settings at family.microsoft.com). A child account outside a family group can't sign in.
+- **gamemode** works through the GameMode portal for Flatpak apps. Worth turning on only for a game that stutters.
+- **Vulkan:** RADV sees the R9 M370X (`RADV VERDE`), and the Intel GPU (hasvk) shows up as a second Vulkan device. For a Vulkan game, check on first launch that it runs on the AMD GPU (e.g. with MangoHud). Minecraft Java uses OpenGL, which runs on the AMD GPU that drives the panel.
 - **No hardware video decoding.** `vainfo` fails on both GPUs: on the AMD one because `amdgpu.ip_block_mask=0x7f` turns UVD off (`radeonsi_drv_video.so init failed`), and on the Intel one because libva picks `iHD`, which is for Broadwell and newer. Haswell would need `libva-intel-driver` (i965, RPM Fusion), plus pointing apps at `/dev/dri/renderD129`. Video plays fine with CPU decoding, so it's left as is for now. Options and a test plan, including YouTube: [hardware.md](hardware.md#hardware-video-decoding-not-set-up-yet). The freeworld VA drivers start to matter if the mask goes away.
 
 **Parental controls (malcontent)** for the child's account (PEGI 7; `<child>` below is its username):
@@ -185,7 +188,7 @@ malcontent-client get-app-filter <child>
 - The OARS values are what AppStream gives for age 7 (`AppStream.ContentRating.attribute_to_csm_age`), the same as picking PEGI 7 in the Parental Controls app (`malcontent-control`). The app is the easier way to change it later, e.g. to raise the age limit.
 - In practice: no apps installed from the child's account, nothing above PEGI 7, no in-app purchases (`money-purchasing=none`), no voice chat apps (`social-audio=none`), moderated text chat only.
 - New apps go in from the admin account; system-wide Flatpaks show up in the child's account too.
-- Limits of malcontent on KDE: it only filters Flatpak installs. Apps already installed aren't hidden (only GNOME Shell does that), and Steam games aren't covered: use Steam Family for those. malcontent 0.14 also has a web filter (`set-web-filter`), not set up.
+- Limits of malcontent on KDE: it only filters Flatpak installs. Apps already installed aren't hidden (only GNOME Shell does that), and what happens inside games isn't covered (for Minecraft, that's the Microsoft family settings). malcontent 0.14 also has a web filter (`set-web-filter`), not set up.
 
 **Web filtering.** The home network uses Cloudflare for Families (1.1.1.3) through the router (10.0.4.1). Checked on 2026-11-06: adult domains resolve to `0.0.0.0`, and Google and Bing are forced to SafeSearch (`forcesafesearch.google.com`, `strict.bing.com`), the same answers 1.1.1.3 gives. Gaps found:
 
@@ -223,8 +226,8 @@ DNS filtering works on whole domains only: chat inside games and comments on all
 - [x] Build and install the patched module, the Wi-Fi sleep hook and the guard, switch to `mem_sleep_default=deep` (see [Patched amdgpu module](#patched-amdgpu-module))
 - [ ] Lid-close test through KDE (PowerDevil), and a sleep-test.sh power measurement
 - [x] Run `bluetooth/bt-fix.sh`
-- [x] Steam (RPM Fusion), gamemode, Flathub, full ffmpeg, malcontent, F-keys (see [Apps, codecs and parental controls](#apps-codecs-and-parental-controls))
-- [ ] Steam Family for the child's account
+- [x] Prism Launcher (Minecraft), gamemode, Flathub, full ffmpeg, malcontent, F-keys (see [Apps, codecs and parental controls](#apps-codecs-and-parental-controls))
+- [ ] Minecraft: the child's Microsoft account in a family group, multiplayer/chat settings, first sign-in in Prism
 - [ ] Back up `/home` to another disk (snapshots are on the same SSD)
 - [ ] Optional: hardware video decoding, Intel i965 first, then dropping the mask (see [hardware.md](hardware.md#hardware-video-decoding-not-set-up-yet))
 - [x] Snapshots: run `backup/snapper-fedora.sh`, check that a Discover install creates a pre/post pair
