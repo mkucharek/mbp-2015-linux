@@ -9,7 +9,7 @@ The Mac is moving from Omarchy to a family laptop used for gaming. Gaming needs 
 | Distro | Kernel (2026-11-05) | When the fix arrives on its own |
 | --- | --- | --- |
 | Kubuntu 26.04 LTS, Linux Mint | Ubuntu 7.0.0-42 | Only if Ubuntu picks up the backport, or with a later HWE kernel, possibly most of 2027 |
-| Fedora 45 KDE | 7.2.15, updated every few days | With a 7.2.y/7.3.y stable backport (not queued yet), or when Fedora moves to 7.4, probably early 2027 |
+| Fedora 45 KDE | 7.2.15, updated every few days | When Fedora moves to 7.3.y (the backport is queued for the next 7.3.y release since 2026-11-07), or to 7.4, probably early 2027 |
 
 Checked for Fedora 45:
 
@@ -101,7 +101,7 @@ The guard tells the modules apart differently than on Arch: Fedora builds withou
   ```
 - **With Discover** (installs on restart, no warning shown): the first boot on the new kernel has the stock module. The guard switches that boot to s2idle, masks hibernate and shows a critical notification. Run `build-fedora.sh` and `install.sh` without `KVER` and reboot.
 
-**Once Fedora's kernel has the fix** (7.4, or a 7.2.y/7.3.y stable backport): after the update the guard's notification shows up as usual. Check `journalctl -k -b | grep 'VRAM: '`: with the stock module, `0x000000F400000000` means the fix is in. Then `sudo bash kernel/amdgpu-module/install.sh remove` and `sudo bash kernel/amdgpu-module/guard/install.sh remove`, reboot, and delete `~/src/fedora-kernel`.
+**Once Fedora's kernel has the fix** (a 7.3.y release with the backport, or 7.4): after the update the guard's notification shows up as usual. Check `journalctl -k -b | grep 'VRAM: '`: with the stock module, `0x000000F400000000` means the fix is in. Then `sudo bash kernel/amdgpu-module/install.sh remove` and `sudo bash kernel/amdgpu-module/guard/install.sh remove`, reboot, and delete `~/src/fedora-kernel`.
 
 ## Snapshots
 
