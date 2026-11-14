@@ -9,7 +9,7 @@ The Mac is moving from Omarchy to a family laptop used for gaming. Gaming needs 
 | Distro | Kernel (2026-11-05) | When the fix arrives on its own |
 | --- | --- | --- |
 | Kubuntu 26.04 LTS, Linux Mint | Ubuntu 7.0.0-42 | Only if Ubuntu picks up the backport, or with a later HWE kernel, possibly most of 2027 |
-| Fedora 45 KDE | 7.2.15, updated every few days | When Fedora moves to 7.3.y (the backport is queued for the next 7.3.y release since 2026-11-07), or to 7.4, probably early 2027 |
+| Fedora 45 KDE | 7.2.15, updated every few days | With 7.3.4, which has the backport (kernel.org release 2026-11-10; in Fedora's updates-testing as of 2026-11-14) |
 
 Checked for Fedora 45:
 
@@ -24,7 +24,7 @@ Checked for Fedora 45:
 | Fix | On Fedora |
 | --- | --- |
 | Kernel parameters | `grubby --update-kernel=ALL --args="..."`; new kernels keep them |
-| Patched amdgpu module | [kernel/amdgpu-module/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module) with `build-fedora.sh`, see [Patched amdgpu module](#patched-amdgpu-module). The patch touches only `si.c` and applies to 7.0 through 7.2 |
+| Patched amdgpu module | [kernel/amdgpu-module/](https://github.com/mkucharek/mbp-2015-linux/tree/main/kernel/amdgpu-module) with `build-fedora.sh`, see [Patched amdgpu module](#patched-amdgpu-module). The patch touches only `si.c` and applies to 7.0 through 7.3.3 |
 | Kernel-update guard | works; on Fedora it installs a `kernel-install` plugin instead of the pacman hook, and checks the module's taint flags instead of `srcversion` |
 | Wi-Fi | works, but not with WPA3: switch saved WPA3 profiles to WPA2 (see [Notes](#notes-from-the-install)) |
 | Wi-Fi sleep hook | works as is |
@@ -85,7 +85,7 @@ cat /sys/power/mem_sleep                         # s2idle [deep]
 echo +30 | sudo tee /sys/class/rtc/rtc0/wakealarm && systemctl suspend   # wakes after 30 s; Wi-Fi back in a few s
 ```
 
-Tested on 7.2.15-300.fc45: the build takes about 6 minutes, the module resets the GPU at load (VRAM at `0x000000F400000000`), and an S3 cycle through `systemctl suspend` works, with Wi-Fi reconnected about 5 s after resume.
+Tested on 7.2.15-300.fc45: the build takes about 6 minutes, the module resets the GPU at load (VRAM at `0x000000F400000000`), and an S3 cycle through `systemctl suspend` works, with Wi-Fi reconnected about 5 s after resume. On 7.3.3-300.fc45 (2026-11-14) the patch still applies cleanly and the module works the same way.
 
 The guard tells the modules apart differently than on Arch: Fedora builds without `CONFIG_MODULE_SRCVERSION_ALL`, so neither module has a `srcversion`. The patched one shows `O` (out-of-tree) in `/sys/module/amdgpu/taint`, and the stock one doesn't.
 
@@ -101,7 +101,25 @@ The guard tells the modules apart differently than on Arch: Fedora builds withou
   ```
 - **With Discover** (installs on restart, no warning shown): the first boot on the new kernel has the stock module. The guard switches that boot to s2idle, masks hibernate and shows a critical notification. Run `build-fedora.sh` and `install.sh` without `KVER` and reboot.
 
-**Once Fedora's kernel has the fix** (a 7.3.y release with the backport, or 7.4): after the update the guard's notification shows up as usual. Check `journalctl -k -b | grep 'VRAM: '`: with the stock module, `0x000000F400000000` means the fix is in. Then `sudo bash kernel/amdgpu-module/install.sh remove` and `sudo bash kernel/amdgpu-module/guard/install.sh remove`, reboot, and delete `~/src/fedora-kernel`.
+**Once Fedora's kernel has the fix** (7.3.4 or later; 7.3.4 reached Fedora's updates-testing first, so a plain `dnf upgrade` brings it only once it moves to stable). Don't build the module for it:
+
+- `dnf upgrade` still prints the guard's "no patched amdgpu module" warning for the new kernel, and the first boot on it still falls back to s2idle with the critical notification. The guard only checks for an override file and the out-of-tree taint, so both are expected.
+- Check the stock module:
+  ```bash
+  journalctl -k -b | grep -E 'PCI CONFIG reset|GPU posting|VRAM:'   # VRAM at 0x000000F400000000 = the fix is in
+  cat /sys/module/amdgpu/taint                                      # empty = stock module
+  echo deep | sudo tee /sys/power/mem_sleep && systemctl suspend    # one S3 cycle, overriding the fallback for this boot
+  ```
+  If resume hangs, hold the power button and boot the previous kernel, which still has the patched module.
+- Then remove the guard and the sources:
+  ```bash
+  sudo bash kernel/amdgpu-module/guard/install.sh remove
+  sudo reboot
+  cat /sys/power/mem_sleep    # s2idle [deep]
+  rm -rf ~/src/fedora-kernel
+  ```
+- Leave the overrides of the older kernels in place (`ls /usr/lib/modules/*/updates/`): if one of them is picked in the boot menu after the guard is gone, the patched module keeps deep sleep working there. `install.sh remove` without `KVER` would only touch the running kernel, which has no override. When dnf later removes those kernels, their `updates/amdgpu.ko.xz` stays behind (no package owns it); delete the leftover `/usr/lib/modules/<version>/` directories then. The oldest kernel without an override (7.2.11) goes as soon as 7.3.4 is installed, since Fedora keeps 3.
+- Optional: `sudo dnf remove kernel-devel`, so dnf stops installing it with every kernel.
 
 ## Snapshots
 
@@ -261,5 +279,6 @@ DNS filtering works on whole domains only: chat inside games and comments on all
 - [ ] Snapshots: confirm an update installed on restart creates a pair (`snapper -c root list`), try a restore once
 - [ ] Camera (optional)
 - [ ] Take good SMC/EC dumps with `smc/smc-ec-dump.sh`
-- [ ] Once Fedora's kernel has the amdgpu fix, remove the patched module and the guard (see [Patched amdgpu module](#patched-amdgpu-module))
+- [x] Rebuild the patched module for 7.3.3 (2026-11-14)
+- [ ] Once Fedora's 7.3.4 is out of updates-testing: check the stock module, then remove the guard (see [Patched amdgpu module](#patched-amdgpu-module))
 - [ ] Optional: build a kernel with the MTRR patch and send a Tested-by for it upstream

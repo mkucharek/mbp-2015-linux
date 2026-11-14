@@ -123,7 +123,7 @@ You lose Vulkan, and the Chromium artifacts seen on radeon here are unexplained.
 - [x] Run `bluetooth/bt-fix.sh`: on 2026-11-05 it recovered a hung chip at boot (one USB reset). As first installed (`Type=oneshot`) it delayed the desktop by about 12 s while doing so; the script now uses `Type=exec`
 - [x] Wi-Fi sleep hook installed (2026-10-14); if Wi-Fi still dies after deep sleep, run `sudo bash wifi/wifi-reload.sh`
 - [ ] FaceTime HD camera: AUR `facetimehd-dkms` + `facetimehd-firmware`, blacklist `bdc_pci`
-- [ ] amdgpu patch upstream: in mainline since 7.4-rc1 (2026-11-01), with `Cc: stable`; not in 7.3.y as of 2026-11-05. Once linux-omarchy has it (7.4, or a stable backport), follow the removal steps in [Patched amdgpu module](#patched-amdgpu-module)
+- [ ] amdgpu patch upstream: in mainline since 7.4-rc1 (2026-11-01), with `Cc: stable`; released in 7.3.4 and 6.18.63 (2026-11-10). Once linux-omarchy has it (7.3.4 or later), follow the removal steps in [Patched amdgpu module](#patched-amdgpu-module)
 - [x] Test hibernate with the amdgpu patch: works once brcmfmac is unloaded first (2026-10-14)
 - [x] Deep-sleep cycle through systemd with the Wi-Fi hook: resumes, Wi-Fi back in ~4.5 s (2026-10-14)
 - [x] suspend-then-hibernate on lid close: works with the fixed Wi-Fi hook (2026-10-15)

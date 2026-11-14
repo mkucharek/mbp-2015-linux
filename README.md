@@ -19,7 +19,7 @@
 
 - **radeon**, for real sleep (deep, 0.2 W) and no Vulkan
 - **amdgpu** + `amdgpu.ip_block_mask=0x7f` + `mem_sleep_default=s2idle`, for Vulkan but only "sleep" at about 22 W
-- **amdgpu** + `amdgpu.ip_block_mask=0x7f` + the patched module from [kernel/amdgpu-si-reset-on-init.patch](kernel/amdgpu-si-reset-on-init.patch), for Vulkan and real sleep (deep, ~0.5 W). It needs a rebuild after each kernel update, until your kernel has the fix (mainline from 7.4).
+- **amdgpu** + `amdgpu.ip_block_mask=0x7f` + the patched module from [kernel/amdgpu-si-reset-on-init.patch](kernel/amdgpu-si-reset-on-init.patch), for Vulkan and real sleep (deep, ~0.5 W). It needs a rebuild after each kernel update, until your kernel has the fix (mainline from 7.4, stable from 7.3.4 and 6.18.63).
 
 Apply `bluetooth/bt-fix.sh` either way.
 
